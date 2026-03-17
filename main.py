@@ -12,8 +12,8 @@ if __name__ == "__main__":
 
     eagle = EAGLE()
     eagle.preprocess(
-        input_path="/Users/taigamori/Works/ASD/data/test4.mp4",
-        output_dir="/Users/taigamori/Works/ASD/data/test42",
+        input_path="",
+        output_dir="",
         object_target_fps=15,
         gaze_target_fps=15,
         det_thresh=0.5,
