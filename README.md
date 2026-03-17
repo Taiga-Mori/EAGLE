@@ -38,6 +38,24 @@ You can also run Streamlit directly if you prefer:
 /Users/taigamori/Works/EAGLE/venv/bin/streamlit run app.py
 ```
 
+### First Run and Model Download
+The distributed app is designed to work as a self-contained application package, but model weights are still downloaded automatically on first use.
+
+On the first run, EAGLE may download:
+- YOLO weights
+- RetinaFace pretrained weights
+- GAZELLE / torch.hub model files
+
+Important notes:
+- Internet access is required on the first run.
+- The first run may take noticeably longer than later runs.
+- After the model files are cached, later launches should reuse them.
+
+If the first run fails, please check:
+- The machine is online
+- GitHub and model hosting endpoints are reachable
+- The user account has permission to write cache files
+
 ### App Workflow
 1. Launch the app with `python app.py`.
 2. Click `Browse`.
@@ -131,6 +149,11 @@ Temporary directories such as `temp` and `heatmaps` are cleaned up after export,
 - For heatmap mode, each person is exported separately because multiple overlaid heatmaps are difficult to interpret.
 - For video input, gaze is not necessarily estimated on every frame. Sparse predictions are interpolated and smoothed over time.
 
+### Troubleshooting
+- If the app fails during model loading on the first run, try again while connected to the internet.
+- If object detection works but gaze loading fails, the issue is often related to torch hub or GAZELLE downloads rather than the app UI itself.
+- If the same machine has already downloaded the required files once, later runs should usually be much more stable.
+
 ### Validation
 The codebase has been syntax-checked with:
 
@@ -188,6 +211,24 @@ python app.py
 ```bash
 /Users/taigamori/Works/EAGLE/venv/bin/streamlit run app.py
 ```
+
+### 初回起動とモデルダウンロード
+配布アプリ自体は単体で配れる構成を目指していますが、モデル重みは初回利用時に自動ダウンロードされる前提です。
+
+初回起動時には、必要に応じて以下が取得されます。
+- YOLO の重み
+- RetinaFace の学習済み重み
+- GAZELLE / torch.hub 関連のモデルファイル
+
+注意点:
+- 初回起動時はインターネット接続が必要です。
+- 初回だけ処理開始まで少し時間がかかることがあります。
+- 一度キャッシュされれば、以後は再利用される想定です。
+
+初回起動で失敗した場合は、以下を確認してください。
+- 端末がインターネットに接続されているか
+- GitHub やモデル配布元にアクセスできるか
+- 現在のユーザーにキャッシュ保存権限があるか
 
 ### アプリの使い方
 1. `python app.py` で起動します。
@@ -281,6 +322,11 @@ UI から以下の主要パラメータを直接調整できます。
 - 同じ出力ディレクトリを再実行し、`Reuse existing objects.csv when available` を有効にしている場合、物体検出をスキップして前回の `objects.csv` を再利用することがあります。
 - ヒートマップは、複数人分を同一画面に重ねると見づらいため、人物ごとに分けて出力します。
 - 動画では、視線を毎フレーム必ず推定しているわけではありません。疎に推定した結果を時間方向に補間・平滑化しています。
+
+### トラブルシュート
+- 初回起動時のモデル読み込みで失敗した場合は、インターネット接続ありの状態で再実行してください。
+- 物体検出までは進むのに視線モデルの読み込みで失敗する場合、アプリ UI ではなく torch hub や GAZELLE の取得失敗であることが多いです。
+- 同じマシンで一度必要ファイルの取得が終われば、その後の起動はかなり安定しやすくなります。
 
 ### 動作確認
 コード全体の文法確認には以下を使っています。

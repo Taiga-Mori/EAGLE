@@ -1,7 +1,13 @@
 from pathlib import Path
 import base64
+from functools import lru_cache
+import os
+import signal
 import socket
 import subprocess
+import sys
+import time
+import webbrowser
 
 import cv2
 import yaml
@@ -10,9 +16,11 @@ from eagle import EAGLE
 
 
 APP_PATH = Path(__file__).resolve()
+RUNTIME_ROOT = Path(sys._MEIPASS) if hasattr(sys, "_MEIPASS") else APP_PATH.parent
 APP_DIR = APP_PATH.parent
-STREAMLIT_PATH = APP_DIR / "venv" / "bin" / "streamlit"
-APP_ICON_PATH = APP_DIR / "assets" / "icon_trans.png"
+APP_ICON_PATH = RUNTIME_ROOT / "assets" / "icon_trans.png"
+STREAMLIT_CHILD_ENV = "EAGLE_STREAMLIT_CHILD"
+STREAMLIT_PORT_ENV = "EAGLE_STREAMLIT_PORT"
 
 
 def detect_media_type(annotator: EAGLE, input_path: Path | None) -> str | None:
@@ -91,7 +99,7 @@ def render_header(st) -> None:
     if APP_ICON_PATH.exists():
         col1, col2 = st.columns([2, 5], vertical_alignment="center")
         with col1:
-            encoded = base64.b64encode(APP_ICON_PATH.read_bytes()).decode("ascii")
+            encoded = load_icon_base64()
             st.markdown(
                 (
                     "<div style='padding-top: 0.25rem;'>"
@@ -109,12 +117,39 @@ def render_header(st) -> None:
     st.caption("End-to-end Automatic Gaze LabEling tool for interaction studies")
 
 
+@lru_cache(maxsize=1)
+def load_icon_base64() -> str:
+    return base64.b64encode(APP_ICON_PATH.read_bytes()).decode("ascii")
+
+
 def is_running_under_streamlit() -> bool:
     try:
         from streamlit.runtime.scriptrunner import get_script_run_ctx
     except Exception:
         return False
     return get_script_run_ctx() is not None
+
+
+def resolve_streamlit_script_path() -> Path:
+    candidate = RUNTIME_ROOT / "app.py"
+    if candidate.exists():
+        return candidate
+    return APP_PATH
+
+
+def launch_streamlit_server(port: int) -> int:
+    import streamlit.web.cli as stcli
+
+    sys.argv = [
+        "streamlit",
+        "run",
+        str(resolve_streamlit_script_path()),
+        "--server.port",
+        str(port),
+        "--server.headless=true",
+        "--global.developmentMode=false",
+    ]
+    return stcli.main()
 
 
 def find_available_port(start_port: int = 8501, max_tries: int = 20) -> int:
@@ -140,6 +175,59 @@ def _is_port_available(port: int) -> bool:
         except OSError:
             return False
     return True
+
+
+def wait_for_port(port: int, timeout_seconds: float = 15.0) -> bool:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                return True
+        except OSError:
+            time.sleep(0.2)
+    return False
+
+
+def launch_frozen_app_server(port: int) -> None:
+    env = os.environ.copy()
+    env[STREAMLIT_CHILD_ENV] = "1"
+    env[STREAMLIT_PORT_ENV] = str(port)
+    child = subprocess.Popen(
+        [sys.executable],
+        cwd=str(RUNTIME_ROOT),
+        env=env,
+        start_new_session=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    _keep_launcher_alive(child, port)
+
+
+def _keep_launcher_alive(child: subprocess.Popen, port: int) -> None:
+    def terminate_child(*_args) -> None:
+        if child.poll() is None:
+            child.terminate()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, terminate_child)
+    signal.signal(signal.SIGINT, terminate_child)
+
+    if wait_for_port(port):
+        url = f"http://localhost:{port}"
+        try:
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", url])
+            else:
+                webbrowser.open(url)
+        except Exception:
+            webbrowser.open(url)
+
+    try:
+        while child.poll() is None:
+            time.sleep(0.5)
+    finally:
+        if child.poll() is None:
+            child.terminate()
 
 
 def main() -> None:
@@ -469,12 +557,16 @@ def main() -> None:
 if __name__ == "__main__":
     if is_running_under_streamlit():
         main()
+    elif os.environ.get(STREAMLIT_CHILD_ENV) == "1":
+        port = int(os.environ.get(STREAMLIT_PORT_ENV, "8501"))
+        raise SystemExit(launch_streamlit_server(port))
+    elif getattr(sys, "frozen", False):
+        port = find_available_port()
+        if port != 8501:
+            print(f"Port 8501 is busy. Launching Streamlit on port {port}.", flush=True)
+        launch_frozen_app_server(port)
     else:
         port = find_available_port()
         if port != 8501:
             print(f"Port 8501 is busy. Launching Streamlit on port {port}.", flush=True)
-        subprocess.run(
-            [str(STREAMLIT_PATH), "run", str(APP_PATH), "--server.port", str(port), '--global.developmentMode=false'],
-            check=True,
-            cwd=str(APP_DIR),
-        )
+        raise SystemExit(launch_streamlit_server(port))

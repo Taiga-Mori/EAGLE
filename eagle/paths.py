@@ -11,11 +11,14 @@ class PathManager:
     def __init__(self) -> None:
         app_dir = Path.home() / ".EAGLE"
         app_dir.mkdir(exist_ok=True)
+        torch_home = app_dir / "torch"
+        torch_hub_dir = torch_home / "hub"
+        torch_hub_dir.mkdir(parents=True, exist_ok=True)
 
         if hasattr(sys, "_MEIPASS"):
             working_dir = Path(sys._MEIPASS)
         else:
-            working_dir = Path(os.path.abspath("."))
+            working_dir = Path(__file__).resolve().parent.parent
 
         if sys.platform == "darwin":
             ffmpeg_path = working_dir / "ffmpeg" / "mac" / "ffmpeg"
@@ -28,6 +31,8 @@ class PathManager:
             working_dir=working_dir,
             app_dir=app_dir,
             yolo_path=app_dir / "yolo26x.pt",
+            torch_home=torch_home,
+            torch_hub_dir=torch_hub_dir,
             botsort_template_path=working_dir / "config" / "botsort.yaml",
             botsort_runtime_path=working_dir / "config" / "botsort_temp.yaml",
             ffmpeg_path=ffmpeg_path,

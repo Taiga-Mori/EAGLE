@@ -12,6 +12,8 @@ class AppPaths:
     working_dir: Path
     app_dir: Path
     yolo_path: Path
+    torch_home: Path
+    torch_hub_dir: Path
     botsort_template_path: Path
     botsort_runtime_path: Path
     ffmpeg_path: Path

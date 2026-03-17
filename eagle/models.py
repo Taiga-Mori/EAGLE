@@ -1,4 +1,6 @@
+import os
 import shutil
+import ssl
 from urllib.request import urlopen
 
 import torch
@@ -18,34 +20,70 @@ class ModelManager:
         self.gazelle = None
         self.gazelle_transform = None
         self.loaded_device: str | None = None
+        self._configure_download_environment()
+
+    def _configure_download_environment(self) -> None:
+        os.environ.setdefault("TORCH_HOME", str(self.paths.torch_home))
+        try:
+            import certifi
+
+            cert_path = certifi.where()
+            os.environ.setdefault("SSL_CERT_FILE", cert_path)
+            os.environ.setdefault("REQUESTS_CA_BUNDLE", cert_path)
+            self._ssl_context = ssl.create_default_context(cafile=cert_path)
+        except Exception:
+            self._ssl_context = None
+        torch.hub.set_dir(str(self.paths.torch_hub_dir))
 
     def ensure_yolo_weights(self) -> None:
         if self.paths.yolo_path.is_file():
             return
         try:
             with urlopen(
-                "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt"
+                "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt",
+                context=self._ssl_context,
             ) as response, self.paths.yolo_path.open("wb") as output:
                 shutil.copyfileobj(response, output)
         except Exception as exc:
-            raise RuntimeError(f"Failed to download YOLO weights to {self.paths.yolo_path}") from exc
+            raise RuntimeError(
+                "Failed to download YOLO weights on first run.\n"
+                f"Expected cache path: {self.paths.yolo_path}\n"
+                "Please make sure this machine is connected to the internet and try again.\n"
+                f"Original error: {exc}"
+            ) from exc
 
     def load(self, device: str) -> None:
         self.ensure_yolo_weights()
         if self.yolo is None:
             self.yolo = YOLO(self.paths.yolo_path)
         if self.retinaface is None or self.loaded_device != device:
-            self.retinaface = get_model("resnet50_2020-07-20", max_size=2048, device=device)
-            self.retinaface.eval()
+            try:
+                self.retinaface = get_model("resnet50_2020-07-20", max_size=2048, device=device)
+                self.retinaface.eval()
+            except Exception as exc:
+                raise RuntimeError(
+                    "Failed to load RetinaFace on first run.\n"
+                    "RetinaFace may need to download pretrained weights.\n"
+                    "Please make sure this machine is connected to the internet and try again.\n"
+                    f"Original error: {exc}"
+                ) from exc
         if self.gazelle is None or self.gazelle_transform is None:
             try:
                 self.gazelle, self.gazelle_transform = torch.hub.load(
                     "fkryan/gazelle",
                     "gazelle_dinov2_vitl14_inout",
+                    source="github",
+                    skip_validation=True,
                     trust_repo=True,
                 )
                 self.gazelle.eval()
             except Exception as exc:
-                raise RuntimeError("Failed to load the GAZELLE model from torch.hub") from exc
+                raise RuntimeError(
+                    "Failed to load the GAZELLE model on first run.\n"
+                    "GAZELLE is loaded through torch.hub and may need to download model files.\n"
+                    f"Torch hub cache directory: {self.paths.torch_hub_dir}\n"
+                    "Please make sure this machine is connected to the internet and try again.\n"
+                    f"Original error: {exc}"
+                ) from exc
         self.gazelle.to(device)
         self.loaded_device = device
