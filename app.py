@@ -1,0 +1,480 @@
+from pathlib import Path
+import base64
+import socket
+import subprocess
+
+import cv2
+import yaml
+
+from eagle import EAGLE
+
+
+APP_PATH = Path(__file__).resolve()
+APP_DIR = APP_PATH.parent
+STREAMLIT_PATH = APP_DIR / "venv" / "bin" / "streamlit"
+APP_ICON_PATH = APP_DIR / "assets" / "icon_trans.png"
+
+
+def detect_media_type(annotator: EAGLE, input_path: Path | None) -> str | None:
+    if input_path is None:
+        return None
+    try:
+        return annotator.config_manager.detect_media_type(input_path)
+    except ValueError:
+        return None
+
+
+def resolve_video_fps(input_path: Path) -> float:
+    capture = cv2.VideoCapture(str(input_path))
+    if not capture.isOpened():
+        raise FileNotFoundError(f"Could not open input: {input_path}")
+    try:
+        fps = float(capture.get(cv2.CAP_PROP_FPS))
+    finally:
+        capture.release()
+    if fps <= 0:
+        raise RuntimeError(f"Invalid FPS metadata for {input_path}")
+    return fps
+
+
+def output_paths_to_lines(output_paths) -> list[str]:
+    if isinstance(output_paths, list):
+        return [str(path) for path in output_paths]
+    return [str(output_paths)]
+
+
+def load_botsort_defaults(annotator: EAGLE) -> dict:
+    with annotator.paths.botsort_template_path.open("r", encoding="utf-8") as file:
+        return yaml.safe_load(file) or {}
+
+
+def get_streamlit():
+    import streamlit as st
+
+    return st
+
+
+def reset_to_start(st) -> None:
+    st.session_state.state = "start"
+
+
+def browse_input_file() -> Path | None:
+    try:
+        result = subprocess.run(
+            [
+                "osascript",
+                "-e",
+                (
+                    'POSIX path of (choose file with prompt "Select input image or video" '
+                    'of type {"public.image", "public.movie", "public.video"})'
+                ),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError:
+        return None
+    selected = result.stdout.strip()
+    if not selected:
+        return None
+    return Path(selected)
+
+
+def default_output_dir(input_path: Path | None) -> Path:
+    if input_path is None:
+        return APP_DIR / "output"
+    return input_path.parent / input_path.stem
+
+
+def render_header(st) -> None:
+    if APP_ICON_PATH.exists():
+        col1, col2 = st.columns([2, 5], vertical_alignment="center")
+        with col1:
+            encoded = base64.b64encode(APP_ICON_PATH.read_bytes()).decode("ascii")
+            st.markdown(
+                (
+                    "<div style='padding-top: 0.25rem;'>"
+                    f"<img src='data:image/png;base64,{encoded}' "
+                    "style='width: 220px; max-width: 100%; height: auto; image-rendering: -webkit-optimize-contrast;' />"
+                    "</div>"
+                ),
+                unsafe_allow_html=True,
+            )
+        with col2:
+            st.title("EAGLE")
+            st.caption("End-to-end Automatic Gaze LabEling tool for interaction studies")
+        return
+    st.title("EAGLE")
+    st.caption("End-to-end Automatic Gaze LabEling tool for interaction studies")
+
+
+def is_running_under_streamlit() -> bool:
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+    except Exception:
+        return False
+    return get_script_run_ctx() is not None
+
+
+def find_available_port(start_port: int = 8501, max_tries: int = 20) -> int:
+    for port in range(start_port, start_port + max_tries):
+        if not _is_port_available(port):
+            continue
+        return port
+    raise RuntimeError(f"Could not find an available port in {start_port}-{start_port + max_tries - 1}")
+
+
+def _is_port_available(port: int) -> bool:
+    checks = [
+        (socket.AF_INET, ("127.0.0.1", port)),
+        (socket.AF_INET, ("0.0.0.0", port)),
+        (socket.AF_INET6, ("::1", port)),
+        (socket.AF_INET6, ("::", port)),
+    ]
+    for family, address in checks:
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind(address)
+        except OSError:
+            return False
+    return True
+
+
+def main() -> None:
+    st = get_streamlit()
+    st.set_page_config(page_title="EAGLE", layout="centered")
+    render_header(st)
+
+    if "annotator" not in st.session_state:
+        st.session_state.annotator = EAGLE()
+    if "state" not in st.session_state:
+        st.session_state.state = "start"
+    if "results" not in st.session_state:
+        st.session_state.results = None
+    if "error_message" not in st.session_state:
+        st.session_state.error_message = None
+    if "selected_input_path" not in st.session_state:
+        st.session_state.selected_input_path = ""
+
+    annotator: EAGLE = st.session_state.annotator
+    botsort_defaults = load_botsort_defaults(annotator)
+
+    if st.session_state.state == "start":
+        st.subheader("Input / Output")
+        col_input_path, col_browse = st.columns([5, 1])
+        with col_input_path:
+            input_path_str = st.text_input(
+                "Input file",
+                value=st.session_state.selected_input_path,
+                disabled=True,
+            )
+        with col_browse:
+            st.write("")
+            st.write("")
+            if st.button("Browse", use_container_width=True):
+                selected_path = browse_input_file()
+                if selected_path is not None:
+                    st.session_state.selected_input_path = str(selected_path)
+                    st.rerun()
+
+        input_path = Path(input_path_str) if input_path_str else None
+        output_dir_default = default_output_dir(input_path)
+        output_parent_dir = output_dir_default.parent
+        output_name = st.text_input(
+            "Output folder name",
+            value=str(st.session_state.get("output_name", output_dir_default.name)),
+        ).strip()
+        output_dir = output_parent_dir / (output_name or output_dir_default.name)
+        media_type = detect_media_type(annotator, input_path)
+
+        if input_path is None:
+            st.info("Choose an input file to begin.")
+        elif media_type is None:
+            st.warning("Supported inputs are common image and video files.")
+        elif media_type is not None:
+            st.info(f"Detected input type: {media_type}")
+            st.caption(f"Input: `{input_path}`")
+            st.caption(f"Output parent: `{output_parent_dir}`")
+            st.caption(f"Final output directory: `{output_dir}`")
+
+        st.subheader("Inference")
+        col1, col2 = st.columns(2)
+        with col1:
+            det_thresh = float(
+                st.slider(
+                    "Detection threshold",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=float(st.session_state.get("det_thresh", 0.5)),
+                    step=0.05,
+                )
+            )
+        with col2:
+            device = st.selectbox(
+                "Device",
+                options=annotator.device_options,
+                index=annotator.device_options.index(st.session_state.get("device", annotator.device_options[0])),
+            )
+
+        visualization_mode = st.selectbox(
+            "Visualization mode",
+            options=["both", "point", "heatmap"],
+            index=["both", "point", "heatmap"].index(st.session_state.get("visualization_mode", "both")),
+        )
+        heatmap_alpha = float(
+            st.slider(
+                "Heatmap alpha",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(st.session_state.get("heatmap_alpha", 0.35)),
+                step=0.05,
+            )
+        )
+        person_only_mode = st.checkbox(
+            "Track persons only",
+            value=bool(st.session_state.get("person_only_mode", True)),
+        )
+        reuse_cached_objects = st.checkbox(
+            "Reuse existing objects.csv when available",
+            value=bool(st.session_state.get("reuse_cached_objects", True)),
+        )
+
+        st.subheader("Temporal Settings")
+        object_smoothing_window = int(
+            st.number_input(
+                "Object smoothing window",
+                min_value=1,
+                step=1,
+                value=int(st.session_state.get("object_smoothing_window", 5)),
+            )
+        )
+        gaze_smoothing_window = int(
+            st.number_input(
+                "Gaze smoothing window",
+                min_value=1,
+                step=1,
+                value=int(st.session_state.get("gaze_smoothing_window", 5)),
+            )
+        )
+
+        object_frame_interval = 1
+        gaze_frame_interval = 1
+        if media_type == "video":
+            col3, col4 = st.columns(2)
+            with col3:
+                object_frame_interval = int(
+                    st.number_input(
+                        "Object frame interval",
+                        min_value=1,
+                        step=1,
+                        value=int(st.session_state.get("object_frame_interval", 1)),
+                    )
+                )
+            with col4:
+                gaze_frame_interval = int(
+                    st.number_input(
+                        "Gaze frame interval",
+                        min_value=1,
+                        step=1,
+                        value=int(st.session_state.get("gaze_frame_interval", 2)),
+                    )
+                )
+            if gaze_frame_interval < object_frame_interval:
+                st.warning("Gaze frame interval should be greater than or equal to object frame interval.")
+
+        st.subheader("BoT-SORT")
+        col5, col6 = st.columns(2)
+        with col5:
+            track_high_thresh = float(
+                st.slider(
+                    "track_high_thresh",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=float(st.session_state.get("track_high_thresh", botsort_defaults.get("track_high_thresh", 0.25))),
+                    step=0.05,
+                )
+            )
+            new_track_thresh = float(
+                st.slider(
+                    "new_track_thresh",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=float(st.session_state.get("new_track_thresh", botsort_defaults.get("new_track_thresh", 0.25))),
+                    step=0.05,
+                )
+            )
+            match_thresh = float(
+                st.slider(
+                    "match_thresh",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=float(st.session_state.get("match_thresh", botsort_defaults.get("match_thresh", 0.8))),
+                    step=0.05,
+                )
+            )
+        with col6:
+            track_low_thresh = float(
+                st.slider(
+                    "track_low_thresh",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=float(st.session_state.get("track_low_thresh", botsort_defaults.get("track_low_thresh", 0.1))),
+                    step=0.05,
+                )
+            )
+            track_buffer = int(
+                st.number_input(
+                    "track_buffer",
+                    min_value=1,
+                    step=1,
+                    value=int(st.session_state.get("track_buffer", botsort_defaults.get("track_buffer", 30))),
+                )
+            )
+            with_reid = st.checkbox(
+                "Enable ReID",
+                value=bool(st.session_state.get("with_reid", botsort_defaults.get("with_reid", False))),
+            )
+
+        proximity_thresh = float(
+            st.slider(
+                "proximity_thresh",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(st.session_state.get("proximity_thresh", botsort_defaults.get("proximity_thresh", 0.5))),
+                step=0.05,
+            )
+        )
+        appearance_thresh = float(
+            st.slider(
+                "appearance_thresh",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(st.session_state.get("appearance_thresh", botsort_defaults.get("appearance_thresh", 0.8))),
+                step=0.05,
+            )
+        )
+
+        st.session_state.input_path = "" if input_path is None else str(input_path)
+        st.session_state.output_dir = str(output_dir)
+        st.session_state.output_name = output_dir.name
+        st.session_state.det_thresh = det_thresh
+        st.session_state.device = device
+        st.session_state.visualization_mode = visualization_mode
+        st.session_state.heatmap_alpha = heatmap_alpha
+        st.session_state.person_only_mode = person_only_mode
+        st.session_state.reuse_cached_objects = reuse_cached_objects
+        st.session_state.object_smoothing_window = object_smoothing_window
+        st.session_state.gaze_smoothing_window = gaze_smoothing_window
+        st.session_state.object_frame_interval = object_frame_interval
+        st.session_state.gaze_frame_interval = gaze_frame_interval
+        st.session_state.track_high_thresh = track_high_thresh
+        st.session_state.track_low_thresh = track_low_thresh
+        st.session_state.new_track_thresh = new_track_thresh
+        st.session_state.track_buffer = track_buffer
+        st.session_state.match_thresh = match_thresh
+        st.session_state.with_reid = with_reid
+        st.session_state.proximity_thresh = proximity_thresh
+        st.session_state.appearance_thresh = appearance_thresh
+
+        if st.button("Run Pipeline", type="primary", disabled=input_path is None):
+            st.session_state.state = "processing"
+            st.rerun()
+
+    elif st.session_state.state == "processing":
+        progress_bar = st.progress(0, text="Preparing...")
+        status = st.empty()
+        try:
+            input_path = Path(st.session_state.input_path)
+            output_dir = Path(st.session_state.output_dir)
+            media_type = annotator.config_manager.detect_media_type(input_path)
+
+            object_target_fps = None
+            gaze_target_fps = None
+            if media_type == "video":
+                fps = resolve_video_fps(input_path)
+                object_target_fps = fps / max(int(st.session_state.object_frame_interval), 1)
+                gaze_target_fps = fps / max(int(st.session_state.gaze_frame_interval), 1)
+
+            tracker_updates = {
+                "track_high_thresh": st.session_state.track_high_thresh,
+                "track_low_thresh": st.session_state.track_low_thresh,
+                "new_track_thresh": st.session_state.new_track_thresh,
+                "track_buffer": st.session_state.track_buffer,
+                "match_thresh": st.session_state.match_thresh,
+                "with_reid": st.session_state.with_reid,
+                "proximity_thresh": st.session_state.proximity_thresh,
+                "appearance_thresh": st.session_state.appearance_thresh,
+            }
+
+            status.write("Loading models and preparing pipeline...")
+            annotator.preprocess(
+                input_path=input_path,
+                output_dir=output_dir,
+                object_target_fps=object_target_fps,
+                gaze_target_fps=gaze_target_fps,
+                det_thresh=st.session_state.det_thresh,
+                updates=tracker_updates,
+                device=st.session_state.device,
+                visualization_mode=st.session_state.visualization_mode,
+                heatmap_alpha=st.session_state.heatmap_alpha,
+                object_smoothing_window=st.session_state.object_smoothing_window,
+                gaze_smoothing_window=st.session_state.gaze_smoothing_window,
+                person_only_mode=st.session_state.person_only_mode,
+                reuse_cached_objects=st.session_state.reuse_cached_objects,
+            )
+            st.session_state.results = annotator.run_all(progress_bar=progress_bar)
+            st.session_state.error_message = None
+            st.session_state.state = "end"
+            st.rerun()
+        except Exception as error:
+            st.session_state.error_message = str(error)
+            st.session_state.state = "error"
+            st.rerun()
+
+    elif st.session_state.state == "error":
+        st.error(st.session_state.error_message or "Unknown error")
+        if st.button("Back"):
+            reset_to_start(st)
+            st.rerun()
+
+    elif st.session_state.state == "end":
+        st.success("Completed")
+        results = st.session_state.results or {}
+        context = annotator.context
+
+        if context is not None:
+            st.write(f"Objects CSV: `{context.objects_path}`")
+            st.write(f"Gaze CSV: `{context.gaze_path}`")
+            st.write(f"Annotation CSV: `{context.annotation_path}`")
+
+        output_paths = results.get("media_output_paths")
+        if output_paths is not None:
+            st.write("Visualization outputs:")
+            for line in output_paths_to_lines(output_paths):
+                st.write(f"- `{line}`")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Run Another File"):
+                reset_to_start(st)
+                st.rerun()
+        with col2:
+            if st.button("Keep Settings and Edit"):
+                reset_to_start(st)
+                st.rerun()
+
+
+if __name__ == "__main__":
+    if is_running_under_streamlit():
+        main()
+    else:
+        port = find_available_port()
+        if port != 8501:
+            print(f"Port 8501 is busy. Launching Streamlit on port {port}.", flush=True)
+        subprocess.run(
+            [str(STREAMLIT_PATH), "run", str(APP_PATH), "--server.port", str(port), '--global.developmentMode=false'],
+            check=True,
+            cwd=str(APP_DIR),
+        )
