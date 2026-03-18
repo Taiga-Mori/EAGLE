@@ -10,6 +10,8 @@ EAGLE: End-to-end Automatic Gaze LabEling tool for interaction studies
 ### Overview
 EAGLE is a gaze-annotation pipeline for interaction studies. It detects people and other objects, estimates face locations, predicts gaze heatmaps and gaze points, and exports results as CSV files plus annotated images or videos.
 
+EAGLE is intended as an annotation support tool, not as a source of guaranteed ground truth. You are responsible for reviewing and validating the outputs before using them in research, analysis, reporting, or decision-making. The authors and distributors of this software do not accept responsibility for errors, omissions, misdetections, or any conclusions drawn from its results.
+
 The current app supports:
 - Image input and video input
 - Point visualization and per-person heatmap visualization
@@ -149,6 +151,12 @@ Temporary directories such as `temp` and `heatmaps` are cleaned up after export,
 - For heatmap mode, each person is exported separately because multiple overlaid heatmaps are difficult to interpret.
 - For video input, gaze is not necessarily estimated on every frame. Sparse predictions are interpolated and smoothed over time.
 
+### Disclaimer
+- Use this software at your own risk.
+- EAGLE is only an annotation-assistance tool and does not guarantee correctness of detections, gaze estimates, or exported annotations.
+- Final responsibility for checking, correcting, and approving annotations remains with the user.
+- The authors and distributors are not liable for outcomes based on the generated results.
+
 ### Troubleshooting
 - If the app fails during model loading on the first run, try again while connected to the internet.
 - If object detection works but gaze loading fails, the issue is often related to torch hub or GAZELLE downloads rather than the app UI itself.
@@ -183,6 +191,8 @@ We sincerely appreciate the research community and open-source contributors whos
 
 ### 概要
 EAGLE は、相互作用研究向けの視線アノテーション支援ツールです。人物や物体の検出・追跡、顔検出、視線ヒートマップ推定、視線点推定を行い、CSV と注釈付き画像・動画を出力します。
+
+EAGLE は、あくまでアノテーション作業を補助するためのツールであり、正解ラベルを保証するものではありません。研究、分析、報告、意思決定などに利用する前に、出力結果は必ず利用者自身で確認・検証してください。本ソフトウェアの著者および配布者は、誤検出、見落とし、推定誤差、またはそこから導かれた判断や結論について責任を負いません。
 
 現在のアプリでは、以下に対応しています。
 - 画像入力と動画入力
@@ -322,6 +332,12 @@ UI から以下の主要パラメータを直接調整できます。
 - 同じ出力ディレクトリを再実行し、`Reuse existing objects.csv when available` を有効にしている場合、物体検出をスキップして前回の `objects.csv` を再利用することがあります。
 - ヒートマップは、複数人分を同一画面に重ねると見づらいため、人物ごとに分けて出力します。
 - 動画では、視線を毎フレーム必ず推定しているわけではありません。疎に推定した結果を時間方向に補間・平滑化しています。
+
+### 免責事項
+- 本ソフトウェアは自己責任で使用してください。
+- EAGLE はアノテーション補助ツールであり、検出結果、視線推定結果、出力アノテーションの正確性を保証しません。
+- 最終的な確認、修正、承認の責任は利用者にあります。
+- 本ツールの出力に基づいて生じたいかなる結果についても、著者および配布者は責任を負いません。
 
 ### トラブルシュート
 - 初回起動時のモデル読み込みで失敗した場合は、インターネット接続ありの状態で再実行してください。
