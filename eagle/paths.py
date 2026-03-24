@@ -31,6 +31,8 @@ class PathManager:
             working_dir=working_dir,
             app_dir=app_dir,
             yolo_path=app_dir / "yolo26x.pt",
+            yolo_pose_path=app_dir / "yolo26x-pose.pt",
+            mobile_gaze_path=app_dir / "mobileone_s0.pt",
             torch_home=torch_home,
             torch_hub_dir=torch_hub_dir,
             botsort_template_path=working_dir / "config" / "botsort.yaml",

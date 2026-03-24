@@ -12,6 +12,8 @@ class AppPaths:
     working_dir: Path
     app_dir: Path
     yolo_path: Path
+    yolo_pose_path: Path
+    mobile_gaze_path: Path
     torch_home: Path
     torch_hub_dir: Path
     botsort_template_path: Path
@@ -33,10 +35,16 @@ class PipelineConfig:
     media_type: str
     visualization_mode: str
     heatmap_alpha: float
+    gaze_point_method: str
+    gaze_target_radius: int
+    person_part_distance_scale: float
     object_smoothing_window: int
     gaze_smoothing_window: int
-    person_only_mode: bool
+    selected_object_classes: list[str]
     reuse_cached_objects: bool
+    reuse_cached_gaze: bool
+    force_reuse_cached_objects: bool
+    force_reuse_cached_gaze: bool
 
 
 @dataclass
@@ -48,7 +56,10 @@ class MediaContext:
     output_dir: Path
     temp_dir: Path
     objects_path: Path
+    objects_meta_path: Path
     gaze_path: Path
+    gaze_heatmaps_path: Path
+    gaze_meta_path: Path
     annotation_path: Path
     annotated_image_path: Path
     heatmap_dir: Path
@@ -66,7 +77,7 @@ class MediaContext:
 class FaceDetection:
     """Best face assigned to a tracked person."""
 
-    track_id: int
+    track_id: str
     conf: float
     x1: int
     y1: int
@@ -78,7 +89,7 @@ class FaceDetection:
 class GazePoint:
     """Estimated gaze result and heatmap for one face."""
 
-    track_id: int
+    track_id: str
     inout: float
     x_gaze: int
     y_gaze: int
@@ -92,7 +103,7 @@ class GazeRecord:
     """Row-oriented gaze result used for CSV export."""
 
     frame_idx: int
-    track_id: int
+    track_id: str
     face_detected: bool
     face_conf: float | None
     face_x1: int | None
@@ -107,3 +118,6 @@ class GazeRecord:
     inout: float | None
     x_gaze: int | None
     y_gaze: int | None
+    offscreen_direction: str | None
+    offscreen_yaw: float | None
+    offscreen_pitch: float | None

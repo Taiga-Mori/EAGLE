@@ -5,6 +5,7 @@ from pathlib import Path
 import cv2
 import pandas as pd
 
+from .body_parts import resolve_person_part_label
 from .constants import ANNOTATION_COLUMNS
 from .types import AppPaths, MediaContext
 
@@ -134,7 +135,14 @@ class AnnotationExporter:
         shutil.rmtree(context.heatmap_dir, ignore_errors=True)
         return outputs
 
-    def make_elan_csv(self, context: MediaContext, det_thresh: float) -> pd.DataFrame:
+    def make_elan_csv(
+        self,
+        context: MediaContext,
+        det_thresh: float,
+        gaze_target_radius: int,
+        person_part_distance_scale: float,
+        selected_object_classes: list[str],
+    ) -> pd.DataFrame:
         gaze_df = pd.read_csv(context.gaze_path)
         object_df = pd.read_csv(context.objects_path)
         if gaze_df.empty or object_df.empty:
@@ -142,7 +150,10 @@ class AnnotationExporter:
             empty_df.to_csv(context.annotation_path, index=False)
             return empty_df
 
-        object_df["label"] = object_df["label"].astype(str).str.replace(r"^(person \d+)$", r"\1's body", regex=True)
+        object_df["label"] = object_df.apply(
+            lambda row: f"person {row['track_id']}" if str(row["cls"]) == "person" else str(row["label"]),
+            axis=1,
+        )
         object_df["area"] = (object_df["x2"] - object_df["x1"]) * (object_df["y2"] - object_df["y1"])
         face_df = gaze_df[gaze_df["face_detected"] == True].copy()
         face_df["face_area"] = (face_df["face_x2"] - face_df["face_x1"]) * (face_df["face_y2"] - face_df["face_y1"])
@@ -153,8 +164,16 @@ class AnnotationExporter:
             target_rows.append(
                 {
                     "frame_idx": int(gaze_row["frame_idx"]),
-                    "track_id": int(gaze_row["track_id"]),
-                    "target": self._resolve_target(gaze_row, object_df, face_df, det_thresh),
+                    "track_id": str(gaze_row["track_id"]),
+                    "target": self._resolve_target(
+                        gaze_row,
+                        object_df,
+                        face_df,
+                        det_thresh,
+                        gaze_target_radius,
+                        person_part_distance_scale,
+                        selected_object_classes,
+                    ),
                 }
             )
 
@@ -168,7 +187,7 @@ class AnnotationExporter:
             annotation_df = pd.DataFrame(
                 [
                     {
-                        "tier": f"person {int(row['track_id'])}",
+                        "tier": self._gaze_tier_label(row["track_id"]),
                         "start_time": 0.0,
                         "end_time": 1.0,
                         "gaze": row["target"],
@@ -195,7 +214,7 @@ class AnnotationExporter:
                 if current_target != previous_target:
                     segments.append(
                         {
-                            "tier": f"person {int(track_id)}",
+                            "tier": self._gaze_tier_label(track_id),
                             "start_time": start_frame / context.fps,
                             "end_time": current_frame / context.fps,
                             "gaze": previous_target,
@@ -205,7 +224,7 @@ class AnnotationExporter:
                     previous_target = current_target
             segments.append(
                 {
-                    "tier": f"person {int(track_id)}",
+                    "tier": self._gaze_tier_label(track_id),
                     "start_time": start_frame / context.fps,
                     "end_time": (context.total_frames - 1) / context.fps,
                     "gaze": previous_target,
@@ -216,43 +235,95 @@ class AnnotationExporter:
         annotation_df.to_csv(context.annotation_path, index=False)
         return annotation_df
 
+    def _gaze_tier_label(self, track_id: object) -> str:
+        return f"person {str(track_id)}_Gaze"
+
     def _resolve_target(
         self,
         gaze_row: pd.Series,
         object_df: pd.DataFrame,
         face_df: pd.DataFrame,
         det_thresh: float,
+        gaze_target_radius: int,
+        person_part_distance_scale: float,
+        selected_object_classes: list[str],
     ) -> str:
-        if pd.isna(gaze_row["inout"]) or float(gaze_row["inout"]) <= det_thresh:
+        if pd.isna(gaze_row["inout"]):
+            return "out of frame"
+        if float(gaze_row["inout"]) <= det_thresh:
+            if "offscreen_direction" in gaze_row and pd.notna(gaze_row["offscreen_direction"]):
+                return str(gaze_row["offscreen_direction"])
             return "out of frame"
         if pd.isna(gaze_row["x_gaze"]) or pd.isna(gaze_row["y_gaze"]):
             return "other"
 
+        candidates: list[tuple[float, str]] = []
+
         face_hits = face_df[
             (face_df["frame_idx"] == int(gaze_row["frame_idx"]))
-            & (face_df["track_id"] != int(gaze_row["track_id"]))
-            & (face_df["face_x1"] <= gaze_row["x_gaze"])
-            & (gaze_row["x_gaze"] <= face_df["face_x2"])
-            & (face_df["face_y1"] <= gaze_row["y_gaze"])
-            & (gaze_row["y_gaze"] <= face_df["face_y2"])
+            & (face_df["track_id"].astype(str) != str(gaze_row["track_id"]))
         ]
-        if not face_hits.empty:
-            hit = face_hits.sort_values("face_area").iloc[0]
-            return f"person {int(hit['track_id'])}'s face"
+        for _, hit in face_hits.iterrows():
+            if self._point_hits_box(
+                int(gaze_row["x_gaze"]),
+                int(gaze_row["y_gaze"]),
+                int(hit["face_x1"]),
+                int(hit["face_y1"]),
+                int(hit["face_x2"]),
+                int(hit["face_y2"]),
+                gaze_target_radius,
+            ):
+                candidates.append((float(hit["face_area"]), f"person {hit['track_id']}'s face"))
 
         hits = object_df[
             (object_df["frame_idx"] == int(gaze_row["frame_idx"]))
-            & (object_df["x1"] <= gaze_row["x_gaze"])
-            & (gaze_row["x_gaze"] <= object_df["x2"])
-            & (object_df["y1"] <= gaze_row["y_gaze"])
-            & (gaze_row["y_gaze"] <= object_df["y2"])
         ]
-        if hits.empty:
+        for _, hit in hits.iterrows():
+            if self._point_hits_box(
+                int(gaze_row["x_gaze"]),
+                int(gaze_row["y_gaze"]),
+                int(hit["x1"]),
+                int(hit["y1"]),
+                int(hit["x2"]),
+                int(hit["y2"]),
+                gaze_target_radius,
+            ):
+                if str(hit["cls"]) == "person":
+                    part_label = resolve_person_part_label(
+                        hit.to_dict(),
+                        int(gaze_row["x_gaze"]),
+                        int(gaze_row["y_gaze"]),
+                        gaze_target_radius,
+                        person_part_distance_scale,
+                    )
+                    if part_label is not None and part_label != "other":
+                        candidates.append((float(hit["area"]), f"person {hit['track_id']}'s {part_label}"))
+                elif str(hit["cls"]) in set(selected_object_classes):
+                    candidates.append((float(hit["area"]), str(hit["label"])))
+
+        if not candidates:
             return "other"
-        hit = hits.sort_values("area").iloc[0]
-        if str(hit["cls"]) == "person":
-            return f"person {int(hit['track_id'])}'s body"
-        return str(hit["label"])
+        _, target = min(candidates, key=lambda item: item[0])
+        return target
+
+    def _point_hits_box(
+        self,
+        x: int,
+        y: int,
+        x1: int,
+        y1: int,
+        x2: int,
+        y2: int,
+        radius: int,
+    ) -> bool:
+        if radius <= 0:
+            return x1 <= x <= x2 and y1 <= y <= y2
+
+        closest_x = min(max(x, x1), x2)
+        closest_y = min(max(y, y1), y2)
+        dx = x - closest_x
+        dy = y - closest_y
+        return (dx * dx) + (dy * dy) <= (radius * radius)
 
     def _video_has_audio_stream(self, video_path: Path) -> bool:
         audio_prop = getattr(cv2, "CAP_PROP_AUDIO_TOTAL_STREAMS", None)

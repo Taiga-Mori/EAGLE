@@ -20,9 +20,13 @@ if __name__ == "__main__":
         device="cpu",
         visualization_mode="both",
         heatmap_alpha=0.35,
+        gaze_point_method="peak_region_centroid",
+        gaze_target_radius=0,
+        person_part_distance_scale=0.22,
         object_smoothing_window=5,
         gaze_smoothing_window=5,
-        person_only_mode=True,
+        selected_object_classes=["person"],
+        reuse_cached_gaze=False,
     )
     eagle.update_botsort_yaml(
         {

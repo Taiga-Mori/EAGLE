@@ -1,15 +1,18 @@
+import json
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import yaml
 
 from .annotate import FrameAnnotator
 from .config import ConfigManager, DeviceManager
+from .constants import COCO_OBJECT_CLASSES
 from .exporters import AnnotationExporter
 from .gaze import FaceGazeEstimator
 from .models import ModelManager
 from .paths import PathManager
-from .temporal import GazeTemporalProcessor, ObjectTrackSmoother
+from .temporal import GazePointResolver, GazeTemporalProcessor, ObjectTrackSmoother
 from .tracking import ObjectTracker
 from .types import MediaContext, PipelineConfig
 
@@ -29,6 +32,7 @@ class EAGLE:
             self.model_manager,
             self.annotator,
             GazeTemporalProcessor(),
+            GazePointResolver(),
         )
         self.exporter = AnnotationExporter(self.paths)
         self.config: PipelineConfig | None = None
@@ -49,10 +53,16 @@ class EAGLE:
         device: str | None = None,
         visualization_mode: str = "both",
         heatmap_alpha: float = 0.35,
+        gaze_point_method: str = "peak_region_centroid",
+        gaze_target_radius: int = 0,
+        person_part_distance_scale: float = 0.22,
         object_smoothing_window: int = 5,
         gaze_smoothing_window: int = 5,
-        person_only_mode: bool = False,
+        selected_object_classes: list[str] | None = None,
         reuse_cached_objects: bool = True,
+        reuse_cached_gaze: bool = False,
+        force_reuse_cached_objects: bool = False,
+        force_reuse_cached_gaze: bool = False,
     ) -> None:
         resolved_device = self.device_manager.resolve(device)
         self.config = self.config_manager.build_config(
@@ -65,10 +75,16 @@ class EAGLE:
             updates=updates,
             visualization_mode=visualization_mode,
             heatmap_alpha=heatmap_alpha,
+            gaze_point_method=gaze_point_method,
+            gaze_target_radius=gaze_target_radius,
+            person_part_distance_scale=person_part_distance_scale,
             object_smoothing_window=object_smoothing_window,
             gaze_smoothing_window=gaze_smoothing_window,
-            person_only_mode=person_only_mode,
+            selected_object_classes=selected_object_classes,
             reuse_cached_objects=reuse_cached_objects,
+            reuse_cached_gaze=reuse_cached_gaze,
+            force_reuse_cached_objects=force_reuse_cached_objects,
+            force_reuse_cached_gaze=force_reuse_cached_gaze,
         )
         self.config_manager.prepare_tracker_config(self.config.tracker_updates)
         self.context = self.config_manager.build_media_context(self.config)
@@ -85,15 +101,19 @@ class EAGLE:
         context = self._require_context()
         config = self._require_config()
         if config.reuse_cached_objects:
-            cached_objects = self._load_cached_objects(config.person_only_mode)
+            cached_objects = self._load_cached_objects(config, force_reuse=config.force_reuse_cached_objects)
             if cached_objects is not None:
+                message = "Skipping object detection: reusing cached objects.csv."
+                if config.force_reuse_cached_objects:
+                    message = "Skipping object detection: force reusing cached objects.csv despite setting differences."
+                self._notify_skip(progress_bar, message)
                 return cached_objects
         return self.object_tracker.detect(
             context=context,
             device=config.device,
             det_thresh=config.det_thresh,
             smoothing_window=config.object_smoothing_window,
-            person_only_mode=config.person_only_mode,
+            selected_object_classes=config.selected_object_classes,
             progress_bar=progress_bar,
         )
 
@@ -106,7 +126,13 @@ class EAGLE:
             det_thresh=config.det_thresh,
             visualization_mode=config.visualization_mode,
             heatmap_alpha=config.heatmap_alpha,
+            gaze_point_method=config.gaze_point_method,
+            gaze_target_radius=config.gaze_target_radius,
+            person_part_distance_scale=config.person_part_distance_scale,
             gaze_smoothing_window=config.gaze_smoothing_window,
+            selected_object_classes=config.selected_object_classes,
+            reuse_cached_gaze=config.reuse_cached_gaze,
+            force_reuse_cached_gaze=config.force_reuse_cached_gaze,
             progress_bar=progress_bar,
         )
 
@@ -122,7 +148,14 @@ class EAGLE:
         return self.make_image()
 
     def make_elan_csv(self):
-        return self.exporter.make_elan_csv(self._require_context(), self._require_config().det_thresh)
+        config = self._require_config()
+        return self.exporter.make_elan_csv(
+            self._require_context(),
+            config.det_thresh,
+            config.gaze_target_radius,
+            config.person_part_distance_scale,
+            config.selected_object_classes,
+        )
 
     def run_all(self, progress_bar=None) -> dict[str, Any]:
         object_df = self.det_objects(progress_bar=progress_bar)
@@ -146,17 +179,54 @@ class EAGLE:
             raise RuntimeError("Call preprocess() before running this step.")
         return self.context
 
-    def _load_cached_objects(self, person_only_mode: bool):
+    def _load_cached_objects(self, config: PipelineConfig, force_reuse: bool = False):
         context = self._require_context()
         if not context.objects_path.exists():
             return None
+        if not context.objects_meta_path.exists():
+            return pd.read_csv(context.objects_path).reset_index(drop=True) if force_reuse else None
         try:
             cached_df = pd.read_csv(context.objects_path)
+            with context.objects_meta_path.open("r", encoding="utf-8") as file:
+                meta = json.load(file)
         except Exception:
             return None
         if cached_df.empty:
             return None
-        if person_only_mode and "cls" in cached_df.columns:
-            if not cached_df["cls"].eq("person").all():
-                return None
-        return cached_df
+        if force_reuse:
+            return cached_df.reset_index(drop=True)
+        if meta.get("raw_detection_cache") is not True:
+            return None
+        if meta.get("media_path") != str(context.media_path.resolve()):
+            return None
+        if int(meta.get("media_mtime_ns", -1)) != context.media_path.stat().st_mtime_ns:
+            return None
+        if abs(float(meta.get("det_thresh", -1.0)) - float(config.det_thresh)) > 1e-9:
+            return None
+        if int(meta.get("object_stride", -1)) != int(context.object_stride):
+            return None
+        if int(meta.get("object_smoothing_window", -1)) != int(config.object_smoothing_window):
+            return None
+        if str(meta.get("person_detection_source", "")) != "pose":
+            return None
+        requested_non_person_detections = any(cls_name != "person" for cls_name in config.selected_object_classes)
+        cached_includes_non_person = bool(meta.get("includes_non_person_detections", True))
+        if requested_non_person_detections and not cached_includes_non_person:
+            return None
+        cached_tracker_config = meta.get("tracker_config")
+        current_tracker_config = self._current_tracker_config()
+        if cached_tracker_config != current_tracker_config:
+            return None
+        return cached_df.reset_index(drop=True)
+
+    def _current_tracker_config(self) -> dict[str, Any] | None:
+        try:
+            with self.paths.botsort_runtime_path.open("r", encoding="utf-8") as file:
+                return yaml.safe_load(file) or {}
+        except Exception:
+            return None
+
+    def _notify_skip(self, progress_bar, message: str) -> None:
+        if progress_bar is not None:
+            progress_bar.progress(0.0, text=message)
+        print(message, flush=True)

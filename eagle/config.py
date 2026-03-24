@@ -5,7 +5,7 @@ from typing import Any
 import cv2
 import yaml
 
-from .constants import IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, VISUALIZATION_MODES
+from .constants import COCO_OBJECT_CLASSES, GAZE_POINT_METHODS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, VISUALIZATION_MODES
 from .types import AppPaths, MediaContext, PipelineConfig
 
 
@@ -47,15 +47,27 @@ class ConfigManager:
         updates: dict[str, Any] | None,
         visualization_mode: str,
         heatmap_alpha: float,
+        gaze_point_method: str,
+        gaze_target_radius: int,
+        person_part_distance_scale: float,
         object_smoothing_window: int,
         gaze_smoothing_window: int,
-        person_only_mode: bool,
+        selected_object_classes: list[str] | None,
         reuse_cached_objects: bool,
+        reuse_cached_gaze: bool,
+        force_reuse_cached_objects: bool,
+        force_reuse_cached_gaze: bool,
     ) -> PipelineConfig:
         if visualization_mode not in VISUALIZATION_MODES:
             raise ValueError(f"visualization_mode must be one of {sorted(VISUALIZATION_MODES)}")
         if not 0.0 <= heatmap_alpha <= 1.0:
             raise ValueError("heatmap_alpha must be between 0.0 and 1.0")
+        if gaze_point_method not in GAZE_POINT_METHODS:
+            raise ValueError(f"gaze_point_method must be one of {sorted(GAZE_POINT_METHODS)}")
+        if gaze_target_radius < 0:
+            raise ValueError("gaze_target_radius must be greater than or equal to 0")
+        if person_part_distance_scale <= 0:
+            raise ValueError("person_part_distance_scale must be greater than 0")
         if object_smoothing_window < 1:
             raise ValueError("object_smoothing_window must be at least 1")
         if gaze_smoothing_window < 1:
@@ -66,6 +78,8 @@ class ConfigManager:
             and float(gaze_target_fps) > float(object_target_fps)
         ):
             raise ValueError("gaze_target_fps must be less than or equal to object_target_fps")
+
+        normalized_selected_classes = self.normalize_selected_object_classes(selected_object_classes)
 
         return PipelineConfig(
             media_path=Path(input_path),
@@ -78,11 +92,35 @@ class ConfigManager:
             media_type=self.detect_media_type(Path(input_path)),
             visualization_mode=visualization_mode,
             heatmap_alpha=float(heatmap_alpha),
+            gaze_point_method=gaze_point_method,
+            gaze_target_radius=int(gaze_target_radius),
+            person_part_distance_scale=float(person_part_distance_scale),
             object_smoothing_window=int(object_smoothing_window),
             gaze_smoothing_window=int(gaze_smoothing_window),
-            person_only_mode=bool(person_only_mode),
+            selected_object_classes=normalized_selected_classes,
             reuse_cached_objects=bool(reuse_cached_objects),
+            reuse_cached_gaze=bool(reuse_cached_gaze),
+            force_reuse_cached_objects=bool(force_reuse_cached_objects),
+            force_reuse_cached_gaze=bool(force_reuse_cached_gaze),
         )
+
+    def normalize_selected_object_classes(self, selected_object_classes: list[str] | None) -> list[str]:
+        if not selected_object_classes:
+            return list(COCO_OBJECT_CLASSES)
+
+        seen: set[str] = set()
+        normalized: list[str] = []
+        invalid = sorted({cls_name for cls_name in selected_object_classes if cls_name not in COCO_OBJECT_CLASSES})
+        if invalid:
+            raise ValueError(f"Unsupported object classes: {', '.join(invalid)}")
+
+        for cls_name in COCO_OBJECT_CLASSES:
+            if cls_name in selected_object_classes and cls_name not in seen:
+                normalized.append(cls_name)
+                seen.add(cls_name)
+        if not normalized:
+            raise ValueError("Select at least one object class.")
+        return normalized
 
     def detect_media_type(self, input_path: Path) -> str:
         suffix = input_path.suffix.lower()
@@ -156,7 +194,10 @@ class ConfigManager:
             output_dir=config.output_dir,
             temp_dir=temp_dir,
             objects_path=config.output_dir / "objects.csv",
+            objects_meta_path=config.output_dir / ".objects_meta.json",
             gaze_path=config.output_dir / "gaze.csv",
+            gaze_heatmaps_path=config.output_dir / "gaze_heatmaps.npz",
+            gaze_meta_path=config.output_dir / ".gaze_meta.json",
             annotation_path=config.output_dir / "annotation.csv",
             annotated_image_path=config.output_dir / "all_points.jpg",
             heatmap_dir=heatmap_dir,

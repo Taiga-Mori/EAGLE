@@ -4,9 +4,11 @@ import ssl
 from urllib.request import urlopen
 
 import torch
+from torchvision import transforms
 from retinaface.pre_trained_models import get_model
 from ultralytics import YOLO
 
+from .mobile_gaze import mobileone_s0_gaze
 from .types import AppPaths
 
 
@@ -16,9 +18,12 @@ class ModelManager:
     def __init__(self, paths: AppPaths) -> None:
         self.paths = paths
         self.yolo: YOLO | None = None
+        self.yolo_pose: YOLO | None = None
         self.retinaface = None
         self.gazelle = None
         self.gazelle_transform = None
+        self.mobile_gaze = None
+        self.mobile_gaze_transform = None
         self.loaded_device: str | None = None
         self._configure_download_environment()
 
@@ -36,26 +41,48 @@ class ModelManager:
         torch.hub.set_dir(str(self.paths.torch_hub_dir))
 
     def ensure_yolo_weights(self) -> None:
-        if self.paths.yolo_path.is_file():
+        self._ensure_download(
+            self.paths.yolo_path,
+            "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt",
+            "YOLO weights",
+        )
+
+    def ensure_yolo_pose_weights(self) -> None:
+        self._ensure_download(
+            self.paths.yolo_pose_path,
+            "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-pose.pt",
+            "YOLO pose weights",
+        )
+
+    def ensure_mobile_gaze_weights(self) -> None:
+        self._ensure_download(
+            self.paths.mobile_gaze_path,
+            "https://github.com/yakhyo/gaze-estimation/releases/download/weights/mobileone_s0.pt",
+            "MobileGaze weights",
+        )
+
+    def _ensure_download(self, destination, url: str, label: str) -> None:
+        if destination.is_file():
             return
         try:
-            with urlopen(
-                "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt",
-                context=self._ssl_context,
-            ) as response, self.paths.yolo_path.open("wb") as output:
+            with urlopen(url, context=self._ssl_context) as response, destination.open("wb") as output:
                 shutil.copyfileobj(response, output)
         except Exception as exc:
             raise RuntimeError(
-                "Failed to download YOLO weights on first run.\n"
-                f"Expected cache path: {self.paths.yolo_path}\n"
+                f"Failed to download {label} on first run.\n"
+                f"Expected cache path: {destination}\n"
                 "Please make sure this machine is connected to the internet and try again.\n"
                 f"Original error: {exc}"
             ) from exc
 
     def load(self, device: str) -> None:
         self.ensure_yolo_weights()
+        self.ensure_yolo_pose_weights()
+        self.ensure_mobile_gaze_weights()
         if self.yolo is None:
             self.yolo = YOLO(self.paths.yolo_path)
+        if self.yolo_pose is None:
+            self.yolo_pose = YOLO(self.paths.yolo_pose_path)
         if self.retinaface is None or self.loaded_device != device:
             try:
                 self.retinaface = get_model("resnet50_2020-07-20", max_size=2048, device=device)
@@ -82,6 +109,28 @@ class ModelManager:
                     "Failed to load the GAZELLE model on first run.\n"
                     "GAZELLE is loaded through torch.hub and may need to download model files.\n"
                     f"Torch hub cache directory: {self.paths.torch_hub_dir}\n"
+                    "Please make sure this machine is connected to the internet and try again.\n"
+                    f"Original error: {exc}"
+                ) from exc
+        if self.mobile_gaze is None or self.mobile_gaze_transform is None or self.loaded_device != device:
+            try:
+                model = mobileone_s0_gaze(num_classes=90)
+                state_dict = torch.load(self.paths.mobile_gaze_path, map_location=device)
+                model.load_state_dict(state_dict)
+                model.eval()
+                self.mobile_gaze = model.to(device)
+                self.mobile_gaze_transform = transforms.Compose(
+                    [
+                        transforms.ToPILImage(),
+                        transforms.Resize(448),
+                        transforms.ToTensor(),
+                        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                    ]
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    "Failed to load the MobileGaze model on first run.\n"
+                    f"Expected weight path: {self.paths.mobile_gaze_path}\n"
                     "Please make sure this machine is connected to the internet and try again.\n"
                     f"Original error: {exc}"
                 ) from exc

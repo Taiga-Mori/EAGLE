@@ -13,6 +13,7 @@ import cv2
 import yaml
 
 from eagle import EAGLE
+from eagle.constants import COCO_OBJECT_CLASSES
 
 
 APP_PATH = Path(__file__).resolve()
@@ -54,6 +55,103 @@ def output_paths_to_lines(output_paths) -> list[str]:
 def load_botsort_defaults(annotator: EAGLE) -> dict:
     with annotator.paths.botsort_template_path.open("r", encoding="utf-8") as file:
         return yaml.safe_load(file) or {}
+
+
+def normalize_selected_classes(selected_classes: list[str] | None) -> list[str]:
+    if not selected_classes:
+        return list(COCO_OBJECT_CLASSES)
+    return [cls_name for cls_name in COCO_OBJECT_CLASSES if cls_name in selected_classes]
+
+
+def load_json_file(path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    try:
+        import json
+
+        with path.open("r", encoding="utf-8") as file:
+            data = json.load(file)
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def build_tracker_config_snapshot(botsort_defaults: dict, tracker_updates: dict) -> dict:
+    snapshot = dict(botsort_defaults)
+    snapshot.update(tracker_updates)
+    return snapshot
+
+
+def get_object_cache_mismatches(
+    output_dir: Path,
+    input_path: Path | None,
+    media_type: str | None,
+    det_thresh: float,
+    object_frame_interval: int,
+    object_smoothing_window: int,
+    tracker_config: dict,
+    selected_object_classes: list[str],
+) -> list[str]:
+    meta = load_json_file(output_dir / ".objects_meta.json")
+    objects_path = output_dir / "objects.csv"
+    if meta is None or not objects_path.exists():
+        return []
+
+    reasons: list[str] = []
+    if meta.get("raw_detection_cache") is not True:
+        reasons.append("cache was created with an older format")
+        return reasons
+    if input_path is not None:
+        if meta.get("media_path") != str(input_path.resolve()):
+            reasons.append("input file is different")
+        elif int(meta.get("media_mtime_ns", -1)) != input_path.stat().st_mtime_ns:
+            reasons.append("input file timestamp is different")
+    expected_stride = 1 if media_type != "video" else int(object_frame_interval)
+    if abs(float(meta.get("det_thresh", -1.0)) - float(det_thresh)) > 1e-9:
+        reasons.append("detection threshold is different")
+    if int(meta.get("object_stride", -1)) != expected_stride:
+        reasons.append("object frame interval is different")
+    if int(meta.get("object_smoothing_window", -1)) != int(object_smoothing_window):
+        reasons.append("object smoothing window is different")
+    if str(meta.get("person_detection_source", "")) != "pose":
+        reasons.append("cached objects.csv was created before pose-based person tracking")
+    requested_non_person_detections = any(cls_name != "person" for cls_name in selected_object_classes)
+    cached_includes_non_person = bool(meta.get("includes_non_person_detections", True))
+    if requested_non_person_detections and not cached_includes_non_person:
+        reasons.append("cached objects.csv does not include non-person detections")
+    if meta.get("tracker_config") != tracker_config:
+        reasons.append("BoT-SORT settings are different")
+    return reasons
+
+
+def get_gaze_cache_mismatches(
+    output_dir: Path,
+    input_path: Path | None,
+    media_type: str | None,
+    det_thresh: float,
+    gaze_frame_interval: int,
+    gaze_smoothing_window: int,
+) -> list[str]:
+    meta = load_json_file(output_dir / ".gaze_meta.json")
+    gaze_path = output_dir / "gaze.csv"
+    heatmap_path = output_dir / "gaze_heatmaps.npz"
+    if meta is None or not gaze_path.exists() or not heatmap_path.exists():
+        return []
+
+    reasons: list[str] = []
+    if input_path is not None:
+        if meta.get("media_path") != str(input_path.resolve()):
+            reasons.append("input file is different")
+        elif int(meta.get("media_mtime_ns", -1)) != input_path.stat().st_mtime_ns:
+            reasons.append("input file timestamp is different")
+    expected_stride = 1 if media_type != "video" else int(gaze_frame_interval)
+    if abs(float(meta.get("det_thresh", -1.0)) - float(det_thresh)) > 1e-9:
+        reasons.append("detection threshold is different")
+    if int(meta.get("gaze_stride", -1)) != expected_stride:
+        reasons.append("gaze frame interval is different")
+    if int(meta.get("gaze_smoothing_window", -1)) != int(gaze_smoothing_window):
+        reasons.append("gaze smoothing window is different")
+    return reasons
 
 
 def get_streamlit():
@@ -250,7 +348,7 @@ def main() -> None:
     botsort_defaults = load_botsort_defaults(annotator)
 
     if st.session_state.state == "start":
-        st.subheader("Input / Output")
+        st.subheader("Basic Settings")
         col_input_path, col_browse = st.columns([5, 1])
         with col_input_path:
             input_path_str = st.text_input(
@@ -277,6 +375,12 @@ def main() -> None:
         output_dir = output_parent_dir / (output_name or output_dir_default.name)
         media_type = detect_media_type(annotator, input_path)
 
+        device = st.selectbox(
+            "Device",
+            options=annotator.device_options,
+            index=annotator.device_options.index(st.session_state.get("device", annotator.device_options[0])),
+        )
+
         if input_path is None:
             st.info("Choose an input file to begin.")
         elif media_type is None:
@@ -287,162 +391,272 @@ def main() -> None:
             st.caption(f"Output parent: `{output_parent_dir}`")
             st.caption(f"Final output directory: `{output_dir}`")
 
-        st.subheader("Inference")
-        col1, col2 = st.columns(2)
-        with col1:
-            det_thresh = float(
-                st.slider(
-                    "Detection threshold",
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=float(st.session_state.get("det_thresh", 0.5)),
-                    step=0.05,
-                )
-            )
-        with col2:
-            device = st.selectbox(
-                "Device",
-                options=annotator.device_options,
-                index=annotator.device_options.index(st.session_state.get("device", annotator.device_options[0])),
-            )
-
-        visualization_mode = st.selectbox(
-            "Visualization mode",
-            options=["both", "point", "heatmap"],
-            index=["both", "point", "heatmap"].index(st.session_state.get("visualization_mode", "both")),
-        )
-        heatmap_alpha = float(
-            st.slider(
-                "Heatmap alpha",
-                min_value=0.0,
-                max_value=1.0,
-                value=float(st.session_state.get("heatmap_alpha", 0.35)),
-                step=0.05,
-            )
-        )
-        person_only_mode = st.checkbox(
-            "Track persons only",
-            value=bool(st.session_state.get("person_only_mode", True)),
-        )
-        reuse_cached_objects = st.checkbox(
-            "Reuse existing objects.csv when available",
-            value=bool(st.session_state.get("reuse_cached_objects", True)),
-        )
-
-        st.subheader("Temporal Settings")
-        object_smoothing_window = int(
-            st.number_input(
-                "Object smoothing window",
-                min_value=1,
-                step=1,
-                value=int(st.session_state.get("object_smoothing_window", 5)),
-            )
-        )
-        gaze_smoothing_window = int(
-            st.number_input(
-                "Gaze smoothing window",
-                min_value=1,
-                step=1,
-                value=int(st.session_state.get("gaze_smoothing_window", 5)),
-            )
-        )
-
-        object_frame_interval = 1
-        gaze_frame_interval = 1
-        if media_type == "video":
-            col3, col4 = st.columns(2)
-            with col3:
-                object_frame_interval = int(
-                    st.number_input(
-                        "Object frame interval",
-                        min_value=1,
-                        step=1,
-                        value=int(st.session_state.get("object_frame_interval", 1)),
+        with st.expander("Detailed Settings", expanded=False):
+            st.subheader("Inference")
+            col1, col2 = st.columns(2)
+            with col1:
+                det_thresh = float(
+                    st.slider(
+                        "Detection threshold",
+                        min_value=0.0,
+                        max_value=1.0,
+                        value=float(st.session_state.get("det_thresh", 0.5)),
+                        step=0.05,
                     )
                 )
-            with col4:
-                gaze_frame_interval = int(
-                    st.number_input(
-                        "Gaze frame interval",
-                        min_value=1,
-                        step=1,
-                        value=int(st.session_state.get("gaze_frame_interval", 2)),
-                    )
+            with col2:
+                visualization_mode = st.selectbox(
+                    "Visualization mode",
+                    options=["both", "point", "heatmap"],
+                    index=["both", "point", "heatmap"].index(st.session_state.get("visualization_mode", "both")),
                 )
-            if gaze_frame_interval < object_frame_interval:
-                st.warning("Gaze frame interval should be greater than or equal to object frame interval.")
 
-        st.subheader("BoT-SORT")
-        col5, col6 = st.columns(2)
-        with col5:
-            track_high_thresh = float(
+            heatmap_alpha = float(
                 st.slider(
-                    "track_high_thresh",
+                    "Heatmap alpha",
                     min_value=0.0,
                     max_value=1.0,
-                    value=float(st.session_state.get("track_high_thresh", botsort_defaults.get("track_high_thresh", 0.25))),
+                    value=float(st.session_state.get("heatmap_alpha", 0.35)),
                     step=0.05,
                 )
             )
-            new_track_thresh = float(
-                st.slider(
-                    "new_track_thresh",
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=float(st.session_state.get("new_track_thresh", botsort_defaults.get("new_track_thresh", 0.25))),
-                    step=0.05,
-                )
-            )
-            match_thresh = float(
-                st.slider(
-                    "match_thresh",
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=float(st.session_state.get("match_thresh", botsort_defaults.get("match_thresh", 0.8))),
-                    step=0.05,
-                )
-            )
-        with col6:
-            track_low_thresh = float(
-                st.slider(
-                    "track_low_thresh",
-                    min_value=0.0,
-                    max_value=1.0,
-                    value=float(st.session_state.get("track_low_thresh", botsort_defaults.get("track_low_thresh", 0.1))),
-                    step=0.05,
-                )
-            )
-            track_buffer = int(
+            gaze_target_radius = int(
                 st.number_input(
-                    "track_buffer",
+                    "Gaze target radius (px)",
+                    min_value=0,
+                    step=1,
+                    value=int(st.session_state.get("gaze_target_radius", 0)),
+                    help="0 means point-only target assignment. Larger values use a circle around the gaze point.",
+                )
+            )
+            person_part_distance_scale = float(
+                st.number_input(
+                    "Person part distance scale",
+                    min_value=0.01,
+                    step=0.01,
+                    value=float(st.session_state.get("person_part_distance_scale", 0.22)),
+                    help="Scales how far from each keypoint a gaze can be and still count as that body part.",
+                )
+            )
+            reuse_cached_objects = st.checkbox(
+                "Reuse existing objects.csv when available",
+                value=bool(st.session_state.get("reuse_cached_objects", False)),
+            )
+            reuse_cached_gaze = st.checkbox(
+                "Reuse existing gaze.csv and heatmaps.npz when available",
+                value=bool(st.session_state.get("reuse_cached_gaze", False)),
+            )
+
+            saved_selected_classes = normalize_selected_classes(
+                st.session_state.get("selected_object_classes", list(COCO_OBJECT_CLASSES))
+            )
+
+            track_all_classes = st.checkbox(
+                "Track all object classes",
+                value=len(saved_selected_classes) == len(COCO_OBJECT_CLASSES),
+                help="Leave this on for the default behavior. Turn it off only if you want to limit tracked objects.",
+            )
+            if track_all_classes:
+                selected_object_classes = list(COCO_OBJECT_CLASSES)
+            else:
+                selected_class_defaults = (
+                    saved_selected_classes
+                    if len(saved_selected_classes) != len(COCO_OBJECT_CLASSES)
+                    else ["person"]
+                )
+                st.caption("Pick only the object classes you want to keep.")
+                selected_object_classes = st.multiselect(
+                    "Object classes to keep",
+                    options=COCO_OBJECT_CLASSES,
+                    default=selected_class_defaults,
+                    placeholder="Choose object classes",
+                )
+                if not selected_object_classes:
+                    st.warning("Select at least one object class.")
+            if len(selected_object_classes) == len(COCO_OBJECT_CLASSES):
+                st.caption("Currently tracking all YOLO object classes.")
+            else:
+                preview = ", ".join(selected_object_classes[:8])
+                suffix = "" if len(selected_object_classes) <= 8 else ", ..."
+                st.caption(f"Tracking {len(selected_object_classes)} classes: {preview}{suffix}")
+            st.subheader("Temporal Settings")
+            object_smoothing_window = int(
+                st.number_input(
+                    "Object smoothing window",
                     min_value=1,
                     step=1,
-                    value=int(st.session_state.get("track_buffer", botsort_defaults.get("track_buffer", 30))),
+                    value=int(st.session_state.get("object_smoothing_window", 5)),
                 )
             )
-            with_reid = st.checkbox(
-                "Enable ReID",
-                value=bool(st.session_state.get("with_reid", botsort_defaults.get("with_reid", False))),
+            gaze_smoothing_window = int(
+                st.number_input(
+                    "Gaze smoothing window",
+                    min_value=1,
+                    step=1,
+                    value=int(st.session_state.get("gaze_smoothing_window", 5)),
+                )
             )
 
-        proximity_thresh = float(
-            st.slider(
-                "proximity_thresh",
-                min_value=0.0,
-                max_value=1.0,
-                value=float(st.session_state.get("proximity_thresh", botsort_defaults.get("proximity_thresh", 0.5))),
-                step=0.05,
+            object_frame_interval = 1
+            gaze_frame_interval = 1
+            if media_type == "video":
+                col3, col4 = st.columns(2)
+                with col3:
+                    object_frame_interval = int(
+                        st.number_input(
+                            "Object frame interval",
+                            min_value=1,
+                            step=1,
+                            value=int(st.session_state.get("object_frame_interval", 1)),
+                        )
+                    )
+                with col4:
+                    gaze_frame_interval = int(
+                        st.number_input(
+                            "Gaze frame interval",
+                            min_value=1,
+                            step=1,
+                            value=int(st.session_state.get("gaze_frame_interval", 1)),
+                        )
+                    )
+                if gaze_frame_interval < object_frame_interval:
+                    st.warning("Gaze frame interval should be greater than or equal to object frame interval.")
+
+            st.subheader("BoT-SORT")
+            col5, col6 = st.columns(2)
+            with col5:
+                track_high_thresh = float(
+                    st.slider(
+                        "track_high_thresh",
+                        min_value=0.0,
+                        max_value=1.0,
+                        value=float(st.session_state.get("track_high_thresh", botsort_defaults.get("track_high_thresh", 0.25))),
+                        step=0.05,
+                    )
+                )
+                new_track_thresh = float(
+                    st.slider(
+                        "new_track_thresh",
+                        min_value=0.0,
+                        max_value=1.0,
+                        value=float(st.session_state.get("new_track_thresh", botsort_defaults.get("new_track_thresh", 0.25))),
+                        step=0.05,
+                    )
+                )
+                match_thresh = float(
+                    st.slider(
+                        "match_thresh",
+                        min_value=0.0,
+                        max_value=1.0,
+                        value=float(st.session_state.get("match_thresh", botsort_defaults.get("match_thresh", 0.8))),
+                        step=0.05,
+                    )
+                )
+            with col6:
+                track_low_thresh = float(
+                    st.slider(
+                        "track_low_thresh",
+                        min_value=0.0,
+                        max_value=1.0,
+                        value=float(st.session_state.get("track_low_thresh", botsort_defaults.get("track_low_thresh", 0.1))),
+                        step=0.05,
+                    )
+                )
+                track_buffer = int(
+                    st.number_input(
+                        "track_buffer",
+                        min_value=1,
+                        step=1,
+                        value=int(st.session_state.get("track_buffer", botsort_defaults.get("track_buffer", 30))),
+                    )
+                )
+                with_reid = st.checkbox(
+                    "Enable ReID",
+                    value=bool(st.session_state.get("with_reid", botsort_defaults.get("with_reid", False))),
+                )
+
+            proximity_thresh = float(
+                st.slider(
+                    "proximity_thresh",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=float(st.session_state.get("proximity_thresh", botsort_defaults.get("proximity_thresh", 0.5))),
+                    step=0.05,
+                )
             )
-        )
-        appearance_thresh = float(
-            st.slider(
-                "appearance_thresh",
-                min_value=0.0,
-                max_value=1.0,
-                value=float(st.session_state.get("appearance_thresh", botsort_defaults.get("appearance_thresh", 0.8))),
-                step=0.05,
+            appearance_thresh = float(
+                st.slider(
+                    "appearance_thresh",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=float(st.session_state.get("appearance_thresh", botsort_defaults.get("appearance_thresh", 0.8))),
+                    step=0.05,
+                )
             )
+
+        tracker_updates = {
+            "track_high_thresh": track_high_thresh,
+            "track_low_thresh": track_low_thresh,
+            "new_track_thresh": new_track_thresh,
+            "track_buffer": track_buffer,
+            "match_thresh": match_thresh,
+            "with_reid": with_reid,
+            "proximity_thresh": proximity_thresh,
+            "appearance_thresh": appearance_thresh,
+        }
+        tracker_snapshot = build_tracker_config_snapshot(botsort_defaults, tracker_updates)
+
+        object_cache_mismatches = (
+            get_object_cache_mismatches(
+                output_dir,
+                input_path,
+                media_type,
+                det_thresh,
+                object_frame_interval,
+                object_smoothing_window,
+                tracker_snapshot,
+                selected_object_classes,
+            )
+            if reuse_cached_objects
+            else []
         )
+        gaze_cache_mismatches = (
+            get_gaze_cache_mismatches(
+                output_dir,
+                input_path,
+                media_type,
+                det_thresh,
+                gaze_frame_interval,
+                gaze_smoothing_window,
+            )
+            if reuse_cached_gaze
+            else []
+        )
+
+        force_reuse_cached_objects = False
+        force_reuse_cached_gaze = False
+        if object_cache_mismatches:
+            st.warning(
+                "Cached objects.csv was created with different settings. "
+                "EAGLE will recompute it unless you force reuse."
+            )
+            for reason in object_cache_mismatches:
+                st.caption(f"- objects cache mismatch: {reason}")
+            force_reuse_cached_objects = st.checkbox(
+                "Force reuse cached objects.csv anyway",
+                value=bool(st.session_state.get("force_reuse_cached_objects", False)),
+            )
+        if gaze_cache_mismatches:
+            st.warning(
+                "Cached gaze.csv / gaze_heatmaps.npz was created with different settings. "
+                "EAGLE will recompute it unless you force reuse."
+            )
+            for reason in gaze_cache_mismatches:
+                st.caption(f"- gaze cache mismatch: {reason}")
+            force_reuse_cached_gaze = st.checkbox(
+                "Force reuse cached gaze.csv and heatmaps.npz anyway",
+                value=bool(st.session_state.get("force_reuse_cached_gaze", False)),
+            )
 
         st.session_state.input_path = "" if input_path is None else str(input_path)
         st.session_state.output_dir = str(output_dir)
@@ -451,8 +665,13 @@ def main() -> None:
         st.session_state.device = device
         st.session_state.visualization_mode = visualization_mode
         st.session_state.heatmap_alpha = heatmap_alpha
-        st.session_state.person_only_mode = person_only_mode
+        st.session_state.gaze_target_radius = gaze_target_radius
+        st.session_state.person_part_distance_scale = person_part_distance_scale
         st.session_state.reuse_cached_objects = reuse_cached_objects
+        st.session_state.reuse_cached_gaze = reuse_cached_gaze
+        st.session_state.force_reuse_cached_objects = force_reuse_cached_objects
+        st.session_state.force_reuse_cached_gaze = force_reuse_cached_gaze
+        st.session_state.selected_object_classes = selected_object_classes
         st.session_state.object_smoothing_window = object_smoothing_window
         st.session_state.gaze_smoothing_window = gaze_smoothing_window
         st.session_state.object_frame_interval = object_frame_interval
@@ -466,7 +685,8 @@ def main() -> None:
         st.session_state.proximity_thresh = proximity_thresh
         st.session_state.appearance_thresh = appearance_thresh
 
-        if st.button("Run Pipeline", type="primary", disabled=input_path is None):
+        run_disabled = input_path is None or not selected_object_classes
+        if st.button("Run Pipeline", type="primary", disabled=run_disabled):
             st.session_state.state = "processing"
             st.rerun()
 
@@ -507,10 +727,15 @@ def main() -> None:
                 device=st.session_state.device,
                 visualization_mode=st.session_state.visualization_mode,
                 heatmap_alpha=st.session_state.heatmap_alpha,
+                gaze_target_radius=st.session_state.gaze_target_radius,
+                person_part_distance_scale=st.session_state.person_part_distance_scale,
                 object_smoothing_window=st.session_state.object_smoothing_window,
                 gaze_smoothing_window=st.session_state.gaze_smoothing_window,
-                person_only_mode=st.session_state.person_only_mode,
+                selected_object_classes=st.session_state.selected_object_classes,
                 reuse_cached_objects=st.session_state.reuse_cached_objects,
+                reuse_cached_gaze=st.session_state.reuse_cached_gaze,
+                force_reuse_cached_objects=st.session_state.force_reuse_cached_objects,
+                force_reuse_cached_gaze=st.session_state.force_reuse_cached_gaze,
             )
             st.session_state.results = annotator.run_all(progress_bar=progress_bar)
             st.session_state.error_message = None
