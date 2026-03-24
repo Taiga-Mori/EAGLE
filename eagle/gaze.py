@@ -1127,7 +1127,8 @@ class FaceGazeEstimator:
             return vertical
         if horizontal:
             return horizontal
-        return "out of frame"
+        # Near-center yaw/pitch means the person is likely facing the camera/front.
+        return "front"
 
     def to_record(
         self,

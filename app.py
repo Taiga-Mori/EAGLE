@@ -22,6 +22,21 @@ APP_DIR = APP_PATH.parent
 APP_ICON_PATH = RUNTIME_ROOT / "assets" / "icon_trans.png"
 STREAMLIT_CHILD_ENV = "EAGLE_STREAMLIT_CHILD"
 STREAMLIT_PORT_ENV = "EAGLE_STREAMLIT_PORT"
+MEDIA_FILE_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".bmp",
+    ".tif",
+    ".tiff",
+    ".webp",
+    ".mp4",
+    ".mov",
+    ".avi",
+    ".mkv",
+    ".webm",
+    ".m4v",
+}
 
 
 def detect_media_type(annotator: EAGLE, input_path: Path | None) -> str | None:
@@ -189,10 +204,89 @@ def browse_input_file() -> Path | None:
     return Path(selected)
 
 
+def discover_container_browse_roots() -> list[Path]:
+    raw = os.getenv("EAGLE_BROWSE_ROOTS", "").strip()
+    configured = [Path(p.strip()) for p in raw.split(",") if p.strip()] if raw else []
+    defaults = [Path("/host_users"), Path("/data"), APP_DIR]
+    roots: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in [*configured, *defaults]:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate.exists() and candidate.is_dir():
+            roots.append(candidate)
+    return roots
+
+
+def list_directory_entries(directory: Path) -> tuple[list[Path], list[Path]]:
+    dirs: list[Path] = []
+    files: list[Path] = []
+    try:
+        for entry in directory.iterdir():
+            if entry.name.startswith("."):
+                continue
+            if entry.is_dir():
+                dirs.append(entry)
+            elif entry.is_file() and entry.suffix.lower() in MEDIA_FILE_EXTENSIONS:
+                files.append(entry)
+    except OSError:
+        return [], []
+    dirs.sort(key=lambda p: p.name.lower())
+    files.sort(key=lambda p: p.name.lower())
+    return dirs, files
+
+
+def render_container_file_browser(st) -> Path | None:
+    roots = discover_container_browse_roots()
+    if not roots:
+        st.warning("No browsable roots found in container. Mount a host directory first.")
+        return None
+
+    root_options = [str(root) for root in roots]
+    selected_root = st.selectbox("Browse root", root_options, key="container_browse_root")
+    root_path = Path(selected_root)
+
+    current_dir = Path(st.session_state.get("container_browse_dir", selected_root))
+    if not current_dir.exists() or not current_dir.is_dir() or root_path not in [current_dir, *current_dir.parents]:
+        current_dir = root_path
+    st.session_state.container_browse_dir = str(current_dir)
+
+    col_dir, col_parent = st.columns([5, 1])
+    with col_dir:
+        st.text_input("Current directory", value=str(current_dir), disabled=True)
+    with col_parent:
+        st.write("")
+        st.write("")
+        if st.button("Up", use_container_width=True, key="container_browse_up"):
+            if current_dir != root_path and root_path in current_dir.parents:
+                st.session_state.container_browse_dir = str(current_dir.parent)
+                st.rerun()
+
+    dirs, files = list_directory_entries(current_dir)
+    choices = [f"[DIR] {p.name}" for p in dirs] + [f"[FILE] {p.name}" for p in files]
+    if not choices:
+        st.info("No visible media files or subdirectories here.")
+        return None
+
+    selected = st.selectbox("Directory entries", choices, key="container_browse_entry")
+    if st.button("Open selected", use_container_width=True, key="container_browse_open"):
+        label, name = selected.split(" ", 1)
+        target = current_dir / name
+        if label == "[DIR]":
+            st.session_state.container_browse_dir = str(target)
+            st.rerun()
+        if label == "[FILE]":
+            return target
+    return None
+
+
 def default_output_dir(input_path: Path | None) -> Path:
     if input_path is None:
         return APP_DIR / "output"
-    return input_path.parent / input_path.stem
+    if os.access(input_path.parent, os.W_OK):
+        return input_path.parent / input_path.stem
+    return APP_DIR / "output" / input_path.stem
 
 
 def render_header(st) -> None:
@@ -367,7 +461,12 @@ def main() -> None:
                     st.session_state.selected_input_path = str(selected_path)
                     st.rerun()
         if sys.platform != "darwin":
-            st.caption("Linux containers do not support the native Browse dialog. Enter the mounted input path manually.")
+            st.caption("Linux containers do not support the native Browse dialog. Use the container browser below or enter a mounted path manually.")
+            with st.expander("Container File Browser", expanded=False):
+                selected_path = render_container_file_browser(st)
+                if selected_path is not None:
+                    st.session_state.selected_input_path = str(selected_path)
+                    st.rerun()
 
         input_path = Path(input_path_str) if input_path_str else None
         output_dir_default = default_output_dir(input_path)
