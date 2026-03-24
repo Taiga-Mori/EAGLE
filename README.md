@@ -8,111 +8,144 @@ EAGLE: End-to-end Automatic Gaze LabEling tool for interaction studies
 ## English
 
 ### Overview
-EAGLE is a gaze-annotation pipeline for interaction studies. It detects people and other objects, estimates face locations, predicts gaze heatmaps and gaze points, and exports results as CSV files plus annotated images or videos.
+EAGLE is a Streamlit-based gaze annotation support tool for image and video analysis. It combines:
 
-EAGLE is intended as an annotation support tool, not as a source of guaranteed ground truth. You are responsible for reviewing and validating the outputs before using them in research, analysis, reporting, or decision-making. The authors and distributors of this software do not accept responsibility for errors, omissions, misdetections, or any conclusions drawn from its results.
+- Person tracking with YOLO pose
+- Non-person object tracking with YOLO detection
+- Face detection with RetinaFace
+- Gaze heatmap estimation with GAZELLE
+- Off-screen direction estimation with MobileOne gaze
+- CSV export plus annotated image/video export
 
-The current app supports:
-- Image input and video input
-- Point visualization and per-person heatmap visualization
-- Object tracking focused on all classes or persons only
-- Reuse of existing `objects.csv` when desired
-- Output of `objects.csv`, `gaze.csv`, `annotation.csv`, `all_points.*`, and `person_*_heatmap.*`
+EAGLE is an annotation assistance tool, not guaranteed ground truth. You must review and validate all outputs before using them in research, analysis, reporting, or decision-making.
 
-### Launching the App
-The app is designed so that this command is enough:
+### What The Current System Does
+For each input image or video, the current pipeline can:
+
+- Detect and track persons from pose detections
+- Optionally keep all COCO object classes or only selected classes
+- Detect one face per tracked person
+- Estimate gaze heatmaps and gaze points
+- Infer off-screen direction labels such as `left`, `up right`, or `down`
+- Generate ELAN-style gaze segments in `annotation.csv`
+- Reuse cached `objects.csv` and cached gaze outputs when settings still match
+- Force reuse old caches even when the app detects a settings mismatch
+
+For person detections, EAGLE also uses pose keypoints to assign gaze to body parts such as face, head, torso, arms, or legs when possible.
+
+### Supported Inputs
+- Images: `.jpg`, `.jpeg`, `.png`, `.bmp`, `.tif`, `.tiff`, `.webp`
+- Videos: `.mp4`, `.mov`, `.avi`, `.mkv`, `.m4v`, `.wmv`, `.webm`
+
+### Current Runtime Notes
+- The current `app.py` UI is effectively macOS-oriented because `Browse` uses `osascript` to open a native file dialog.
+- The core pipeline itself is regular Python code under [`eagle/`](/Users/taigamori/Works/EAGLE/eagle).
+- Bundled FFmpeg binaries are included for macOS and Windows, but the current Streamlit file picker implementation is macOS-specific.
+- Model files are cached under `~/.EAGLE/`.
+
+### Setup
+Create a virtual environment and install dependencies:
+
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Launching The App
+Recommended:
 
 ```bash
 python app.py
 ```
 
-When run this way, `app.py` launches Streamlit automatically using the project virtual environment:
+This launcher starts Streamlit for you and opens the app in a browser. If port `8501` is unavailable, it tries nearby ports automatically.
+
+You can also run Streamlit directly:
 
 ```bash
-/Users/taigamori/Works/EAGLE/venv/bin/streamlit
+venv/bin/streamlit run app.py
 ```
 
-If port `8501` is already in use, the app will try another nearby port automatically.
+### First Run And Model Download
+On first use, EAGLE may download and cache:
 
-You can also run Streamlit directly if you prefer:
-
-```bash
-/Users/taigamori/Works/EAGLE/venv/bin/streamlit run app.py
-```
-
-### First Run and Model Download
-The distributed app is designed to work as a self-contained application package, but model weights are still downloaded automatically on first use.
-
-On the first run, EAGLE may download:
-- YOLO weights
+- `yolo26x.pt`
+- `yolo26x-pose.pt`
 - RetinaFace pretrained weights
-- GAZELLE / torch.hub model files
+- GAZELLE torch.hub files
+- `mobileone_s0.pt`
 
-Important notes:
-- Internet access is required on the first run.
-- The first run may take noticeably longer than later runs.
-- After the model files are cached, later launches should reuse them.
+If first-run loading fails, check:
 
-If the first run fails, please check:
 - The machine is online
-- GitHub and model hosting endpoints are reachable
-- The user account has permission to write cache files
+- GitHub / model hosting endpoints are reachable
+- The current user can write to `~/.EAGLE/`
 
 ### App Workflow
 1. Launch the app with `python app.py`.
 2. Click `Browse`.
-3. Select an input image or video file from the native file picker.
-4. Confirm the detected media type shown in the UI.
-5. Choose the output folder name.
+3. Select one input image or video.
+4. Confirm the detected media type.
+5. Edit `Output folder name` if needed.
+6. Optionally open `Detailed Settings`.
+7. Click `Run Pipeline`.
+8. Review the output paths shown at the end.
 
-Output behavior:
-- The parent output directory is automatically set to the same directory as the input file.
-- You choose only the name of the output folder.
+Output directory behavior:
+
+- The parent directory is the same as the input file's parent directory.
+- The default output folder name is the input stem.
 - Example:
   - Input: `/data/session01/test.mp4`
-  - Output folder name: `test_output`
-  - Final output directory: `/data/session01/test_output`
-
-6. Adjust inference and tracking settings if needed.
-7. Click `Run Pipeline`.
-8. Wait until the app finishes and shows the output file list.
+  - Default output directory: `/data/session01/test`
 
 ### Main Settings
 
-#### Input / Output
-- `Browse`
-  - Opens a native file selection dialog.
+#### Basic Settings
+- `Input file`
+  - Read-only field populated by `Browse`.
 - `Output folder name`
-  - Name of the directory created next to the input file.
+  - Folder created next to the input file.
+- `Device`
+  - Uses `cuda`, `mps`, or `cpu` depending on availability.
 
 #### Inference
 - `Detection threshold`
-  - Confidence threshold used for object and face-related filtering.
-- `Device`
-  - Inference device such as `cpu`, `cuda`, or `mps`, depending on availability.
+  - Shared threshold used for object filtering, face filtering, and gaze in/out interpretation.
 - `Visualization mode`
-  - `both`: output both point visualization and heatmap visualization
-  - `point`: output only point visualization
-  - `heatmap`: output only per-person heatmap visualization
+  - `both`, `point`, or `heatmap`
 - `Heatmap alpha`
-  - Transparency of the heatmap overlay.
-- `Track persons only`
-  - If enabled, only detections with class `person` are kept for object tracking output.
+  - Overlay strength for heatmap outputs.
+- `Gaze target radius (px)`
+  - `0` means point-only target assignment. Larger values use a circular target area.
+- `Person part distance scale`
+  - Controls how far from a person's keypoints gaze can still count as a body part target.
 - `Reuse existing objects.csv when available`
-  - If enabled, the pipeline will reuse an existing `objects.csv` in the output directory instead of rerunning object detection.
+  - Reuses cached object detections when metadata still matches the current run.
+- `Reuse existing gaze.csv and heatmaps.npz when available`
+  - Reuses cached gaze outputs when metadata still matches the current run.
+- `Track all object classes`
+  - When off, you can explicitly choose which COCO classes to keep.
 
 #### Temporal Settings
 - `Object smoothing window`
-  - Temporal smoothing window for tracked object boxes.
+  - Smoothing window for tracked object boxes.
 - `Gaze smoothing window`
-  - Temporal smoothing window for gaze heatmaps and gaze points.
+  - Smoothing window for gaze estimates and off-screen direction angles.
 - `Object frame interval`
-  - For video only. Run object detection/tracking every Nth frame.
+  - For videos only. Object detection/tracking runs every Nth frame.
 - `Gaze frame interval`
-  - For video only. Run gaze estimation every Nth frame, then interpolate and smooth in between.
+  - For videos only. Gaze estimation runs every Nth frame and is then interpolated/smoothed.
+
+Important:
+
+- `Gaze frame interval` must be greater than or equal to `Object frame interval`.
+- Internally, video settings are converted to target FPS values from the source FPS.
 
 #### BoT-SORT
-The app exposes common BoT-SORT settings directly in the UI:
+The UI exposes these tracker settings from [`config/botsort.yaml`](/Users/taigamori/Works/EAGLE/config/botsort.yaml):
+
 - `track_high_thresh`
 - `track_low_thresh`
 - `new_track_thresh`
@@ -122,179 +155,286 @@ The app exposes common BoT-SORT settings directly in the UI:
 - `proximity_thresh`
 - `appearance_thresh`
 
-Their default values come from [`config/botsort.yaml`](/Users/taigamori/Works/EAGLE/config/botsort.yaml).
+### Cache Behavior
+EAGLE writes cache metadata files and checks them before reuse:
+
+- `objects.csv` with `.objects_meta.json`
+- `gaze.csv` with `gaze_heatmaps.npz` and `.gaze_meta.json`
+
+Object cache reuse depends on:
+
+- Input file path
+- Input file timestamp
+- Detection threshold
+- Object frame interval
+- Object smoothing window
+- Selected object classes
+- BoT-SORT settings
+- Whether the cache was created with the current pose-based person tracking format
+
+Gaze cache reuse depends on:
+
+- Input file path
+- Input file timestamp
+- Detection threshold
+- Gaze frame interval
+- Gaze smoothing window
+- `objects.csv` timestamp
+
+If the app detects a mismatch, it warns you and offers a `Force reuse` checkbox.
 
 ### Output Files
-Depending on the input type and visualization mode, the app writes files such as:
+Current outputs can include:
 
 - `objects.csv`
-  - Object detection and tracking results
+  - Smoothed object/person tracking results
+- `.objects_meta.json`
+  - Metadata used to validate object cache reuse
 - `gaze.csv`
-  - Face detections and gaze estimates
-  - Includes both raw sampled gaze values and processed interpolated/smoothed values
+  - Face detections, raw gaze values, processed gaze points, and off-screen direction fields
+- `gaze_heatmaps.npz`
+  - Cached dense gaze heatmaps
+- `.gaze_meta.json`
+  - Metadata used to validate gaze cache reuse
 - `annotation.csv`
-  - ELAN-style gaze annotation summary
+  - ELAN-style gaze segments or single-image labels
 - `all_points.jpg`
   - Point visualization for image input
 - `all_points.mp4`
   - Point visualization for video input
-- `person_1_heatmap.jpg`, `person_2_heatmap.jpg`, ...
-  - Per-person heatmap outputs for image input
-- `person_1_heatmap.mp4`, `person_2_heatmap.mp4`, ...
-  - Per-person heatmap outputs for video input
+- `person_<track_id>_heatmap.jpg`
+  - Per-person heatmap output for image input
+- `person_<track_id>_heatmap.mp4`
+  - Per-person heatmap output for video input
 
-Temporary directories such as `temp` and `heatmaps` are cleaned up after export, so only final deliverables remain.
+Temporary folders such as `temp/` and `heatmaps/` are removed after export.
 
-### Notes
-- The file browser currently uses a macOS-native dialog through `osascript`.
-- If you rerun the same output directory with `Reuse existing objects.csv when available` enabled, object detection may be skipped and prior object results will be reused.
-- For heatmap mode, each person is exported separately because multiple overlaid heatmaps are difficult to interpret.
-- For video input, gaze is not necessarily estimated on every frame. Sparse predictions are interpolated and smoothed over time.
+### CSV Contents
+`objects.csv` columns:
 
-### Disclaimer
-- Use this software at your own risk.
-- EAGLE is only an annotation-assistance tool and does not guarantee correctness of detections, gaze estimates, or exported annotations.
-- Final responsibility for checking, correcting, and approving annotations remains with the user.
-- The authors and distributors are not liable for outcomes based on the generated results.
+- `frame_idx`
+- `cls`
+- `track_id`
+- `source`
+- `conf`
+- `x1`, `y1`, `x2`, `y2`
+- `pose_keypoints`
+- `label`
 
-### Troubleshooting
-- If the app fails during model loading on the first run, try again while connected to the internet.
-- If object detection works but gaze loading fails, the issue is often related to torch hub or GAZELLE downloads rather than the app UI itself.
-- If the same machine has already downloaded the required files once, later runs should usually be much more stable.
+`gaze.csv` columns:
+
+- `frame_idx`
+- `track_id`
+- `face_detected`
+- `face_conf`
+- `face_x1`, `face_y1`, `face_x2`, `face_y2`
+- `raw_gaze_detected`
+- `raw_inout`
+- `raw_x_gaze`, `raw_y_gaze`
+- `gaze_detected`
+- `inout`
+- `x_gaze`, `y_gaze`
+- `offscreen_direction`
+- `offscreen_yaw`
+- `offscreen_pitch`
+
+`annotation.csv` columns:
+
+- `tier`
+- `start_time`
+- `end_time`
+- `gaze`
+
+### Development Entry Points
+- [`app.py`](/Users/taigamori/Works/EAGLE/app.py)
+  - Streamlit UI and launcher
+- [`main.py`](/Users/taigamori/Works/EAGLE/main.py)
+  - Minimal local smoke-test entry point
+- [`eagle/pipeline.py`](/Users/taigamori/Works/EAGLE/eagle/pipeline.py)
+  - Main Python API facade
+
+Minimal code usage:
+
+```python
+from eagle import EAGLE
+
+eagle = EAGLE()
+eagle.preprocess(
+    input_path="input.mp4",
+    output_dir="output_dir",
+    det_thresh=0.5,
+    device="cpu",
+    visualization_mode="both",
+)
+results = eagle.run_all()
+```
 
 ### Validation
-The codebase has been syntax-checked with:
+Basic syntax validation:
 
 ```bash
 python -m py_compile main.py app.py eagle/*.py
 ```
 
+### Disclaimer
+- Use this software at your own risk.
+- EAGLE does not guarantee correctness of detections, gaze estimates, target assignments, or exported annotations.
+- Final responsibility for review and correction remains with the user.
+
 ### Acknowledgements
-This app is built on top of several excellent open-source models and projects. We are very grateful to their authors and maintainers.
-
-- Ultralytics YOLO for object detection and tracking integration
+- Ultralytics YOLO
   - https://docs.ultralytics.com/
-- BoT-SORT for multi-object tracking
+- BoT-SORT
   - https://github.com/NirAharon/BoT-SORT
-- RetinaFace for face detection
+- RetinaFace
   - https://github.com/serengil/retinaface
-- GAZELLE / Gaze-LLE for gaze target estimation
+- GAZELLE
   - https://github.com/fkryan/gazelle
-- DINOv2 as the visual backbone used by GAZELLE
-  - https://github.com/facebookresearch/dinov2
-
-We sincerely appreciate the research community and open-source contributors whose work made this application possible.
+- MobileOne gaze-estimation weights
+  - https://github.com/yakhyo/gaze-estimation
 
 ---
 
 ## 日本語
 
 ### 概要
-EAGLE は、相互作用研究向けの視線アノテーション支援ツールです。人物や物体の検出・追跡、顔検出、視線ヒートマップ推定、視線点推定を行い、CSV と注釈付き画像・動画を出力します。
+EAGLE は、画像・動画向けの視線アノテーション支援ツールです。現在のシステムでは、次を組み合わせて処理します。
 
-EAGLE は、あくまでアノテーション作業を補助するためのツールであり、正解ラベルを保証するものではありません。研究、分析、報告、意思決定などに利用する前に、出力結果は必ず利用者自身で確認・検証してください。本ソフトウェアの著者および配布者は、誤検出、見落とし、推定誤差、またはそこから導かれた判断や結論について責任を負いません。
+- YOLO pose による人物追跡
+- YOLO detection による非人物オブジェクト追跡
+- RetinaFace による顔検出
+- GAZELLE による視線ヒートマップ推定
+- MobileOne gaze による画面外方向推定
+- CSV と注釈付き画像・動画の出力
 
-現在のアプリでは、以下に対応しています。
-- 画像入力と動画入力
-- 点の可視化と人物ごとのヒートマップ可視化
-- 全クラス追跡または人物限定追跡
-- 既存 `objects.csv` の再利用
-- `objects.csv`、`gaze.csv`、`annotation.csv`、`all_points.*`、`person_*_heatmap.*` の出力
+EAGLE はアノテーション補助ツールであり、正解ラベルを保証するものではありません。研究・分析・報告などに使う前に、出力結果は必ず利用者自身で確認してください。
 
-### アプリの起動方法
-基本的には以下で起動できます。
+### 現在のシステムでできること
+現在のパイプラインでは、入力画像または動画ごとに次を実行できます。
+
+- 姿勢推定ベースで人物を検出・追跡する
+- 全 COCO クラス、または選択したクラスだけを残す
+- 追跡中の各人物に対して顔を 1 つ割り当てる
+- 視線ヒートマップと視線点を推定する
+- `left`、`up right`、`down` などの画面外方向ラベルを推定する
+- `annotation.csv` に ELAN 風の視線区間を書き出す
+- 設定が一致する場合は `objects.csv` や視線キャッシュを再利用する
+- 設定不一致でも警告のうえで強制再利用する
+
+人物については、pose keypoint を使って、顔・頭・胴体・腕・脚などの部位に視線を割り当てる処理も入っています。
+
+### 対応入力形式
+- 画像: `.jpg`, `.jpeg`, `.png`, `.bmp`, `.tif`, `.tiff`, `.webp`
+- 動画: `.mp4`, `.mov`, `.avi`, `.mkv`, `.m4v`, `.wmv`, `.webm`
+
+### 現在の実行環境メモ
+- 現在の `app.py` の UI は、`Browse` に `osascript` を使っているため、実質的に macOS 向けです。
+- コアの処理自体は [`eagle/`](/Users/taigamori/Works/EAGLE/eagle) 以下の通常の Python コードです。
+- FFmpeg バイナリは macOS / Windows 用を同梱していますが、現行の Streamlit ファイル選択は macOS 依存です。
+- モデルファイルは `~/.EAGLE/` にキャッシュされます。
+
+### セットアップ
+
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### アプリの起動
+推奨:
 
 ```bash
 python app.py
 ```
 
-この実行では、`app.py` がプロジェクトの仮想環境にある Streamlit を自動で起動します。
+このランチャーは Streamlit を自動起動し、ブラウザを開きます。`8501` が使用中の場合は近いポートを自動で試します。
+
+直接 Streamlit を起動することもできます。
 
 ```bash
-/Users/taigamori/Works/EAGLE/venv/bin/streamlit
+venv/bin/streamlit run app.py
 ```
 
-もし `8501` ポートが使用中なら、近い別ポートを自動で探して起動します。
+### 初回起動時のダウンロード
+初回利用時には、必要に応じて以下を取得して `~/.EAGLE/` などに保存します。
 
-必要であれば、直接 Streamlit を起動してもかまいません。
-
-```bash
-/Users/taigamori/Works/EAGLE/venv/bin/streamlit run app.py
-```
-
-### 初回起動とモデルダウンロード
-配布アプリ自体は単体で配れる構成を目指していますが、モデル重みは初回利用時に自動ダウンロードされる前提です。
-
-初回起動時には、必要に応じて以下が取得されます。
-- YOLO の重み
+- `yolo26x.pt`
+- `yolo26x-pose.pt`
 - RetinaFace の学習済み重み
-- GAZELLE / torch.hub 関連のモデルファイル
+- GAZELLE の torch.hub 関連ファイル
+- `mobileone_s0.pt`
 
-注意点:
-- 初回起動時はインターネット接続が必要です。
-- 初回だけ処理開始まで少し時間がかかることがあります。
-- 一度キャッシュされれば、以後は再利用される想定です。
+初回ロードに失敗したら、以下を確認してください。
 
-初回起動で失敗した場合は、以下を確認してください。
-- 端末がインターネットに接続されているか
-- GitHub やモデル配布元にアクセスできるか
-- 現在のユーザーにキャッシュ保存権限があるか
+- 端末がオンラインか
+- GitHub や配布元にアクセスできるか
+- 現在のユーザーに `~/.EAGLE/` への書き込み権限があるか
 
-### アプリの使い方
+### 基本的な使い方
 1. `python app.py` で起動します。
 2. `Browse` を押します。
-3. ネイティブのファイル選択ダイアログから画像または動画を選びます。
-4. UI 上で入力種別が正しく判定されていることを確認します。
-5. 出力フォルダ名を指定します。
+3. 入力画像または動画を 1 つ選びます。
+4. 判定されたメディア種別を確認します。
+5. `Output folder name` を必要に応じて変更します。
+6. 必要なら `Detailed Settings` を開きます。
+7. `Run Pipeline` を押します。
+8. 最後に表示される出力パスを確認します。
 
 出力先の挙動:
-- 出力先の親ディレクトリは、入力ファイルと同じディレクトリに自動設定されます。
-- ユーザーは、その中に作るフォルダ名だけを指定します。
+
+- 親ディレクトリは入力ファイルと同じ場所です。
+- デフォルトの出力フォルダ名は入力ファイル名の stem です。
 - 例:
   - 入力: `/data/session01/test.mp4`
-  - 出力フォルダ名: `test_output`
-  - 最終出力先: `/data/session01/test_output`
+  - 既定の出力先: `/data/session01/test`
 
-6. 必要に応じて推論・追跡設定を調整します。
-7. `Run Pipeline` を押します。
-8. 処理完了後、出力ファイル一覧を確認します。
+### 主な設定
 
-### 主な設定項目
-
-#### Input / Output
-- `Browse`
-  - ネイティブのファイル選択ダイアログを開きます。
+#### Basic Settings
+- `Input file`
+  - `Browse` でセットされる読み取り専用欄です。
 - `Output folder name`
-  - 入力ファイルと同じ階層に作る出力フォルダ名です。
+  - 入力ファイルの隣に作られるフォルダ名です。
+- `Device`
+  - 利用可能なら `cuda`、`mps`、それ以外は `cpu` を使います。
 
 #### Inference
 - `Detection threshold`
-  - 物体や顔の信頼度フィルタに使う閾値です。
-- `Device`
-  - `cpu`、`cuda`、`mps` など、利用可能な推論デバイスです。
+  - 物体、顔、視線 in/out 判定に使う共通しきい値です。
 - `Visualization mode`
-  - `both`: 点とヒートマップの両方を出力
-  - `point`: 点のみ出力
-  - `heatmap`: 人物ごとのヒートマップのみ出力
+  - `both`、`point`、`heatmap`
 - `Heatmap alpha`
-  - ヒートマップ重ね描きの透明度です。
-- `Track persons only`
-  - 有効にすると、物体追跡結果として `person` クラスのみを残します。
+  - ヒートマップ重ね合わせの強さです。
+- `Gaze target radius (px)`
+  - `0` は点のみで判定します。大きくすると視線点の周辺円もターゲット判定に使います。
+- `Person part distance scale`
+  - 視線が keypoint からどれくらい離れていても部位として扱うかを調整します。
 - `Reuse existing objects.csv when available`
-  - 有効にすると、出力先に既存の `objects.csv` がある場合は物体検出をスキップして再利用します。
+  - 条件が一致する場合、既存の物体検出結果を再利用します。
+- `Reuse existing gaze.csv and heatmaps.npz when available`
+  - 条件が一致する場合、既存の視線結果を再利用します。
+- `Track all object classes`
+  - オフにすると、残したい COCO クラスを個別に選べます。
 
 #### Temporal Settings
 - `Object smoothing window`
-  - 物体 bbox の時間方向平滑化窓です。
+  - 物体ボックスの時系列平滑化窓です。
 - `Gaze smoothing window`
-  - 視線ヒートマップと視線点の時間方向平滑化窓です。
+  - 視線点や画面外方向角度の平滑化窓です。
 - `Object frame interval`
-  - 動画のみ。物体検出・追跡を何フレームおきに実行するかを指定します。
+  - 動画のみ。N フレームごとに物体検出・追跡を行います。
 - `Gaze frame interval`
-  - 動画のみ。視線推定を何フレームおきに実行するかを指定します。中間フレームは補間・平滑化されます。
+  - 動画のみ。N フレームごとに視線推定を行い、その後補間・平滑化します。
+
+注意:
+
+- `Gaze frame interval` は `Object frame interval` 以上である必要があります。
+- 内部的には動画 FPS から target FPS に変換して処理します。
 
 #### BoT-SORT
-UI から以下の主要パラメータを直接調整できます。
+[`config/botsort.yaml`](/Users/taigamori/Works/EAGLE/config/botsort.yaml) の主な設定を UI から変更できます。
+
 - `track_high_thresh`
 - `track_low_thresh`
 - `new_track_thresh`
@@ -304,70 +444,139 @@ UI から以下の主要パラメータを直接調整できます。
 - `proximity_thresh`
 - `appearance_thresh`
 
-これらの初期値は [`config/botsort.yaml`](/Users/taigamori/Works/EAGLE/config/botsort.yaml) から読み込まれます。
+### キャッシュ仕様
+EAGLE は再利用判定用のメタデータも一緒に保存します。
+
+- `objects.csv` と `.objects_meta.json`
+- `gaze.csv` と `gaze_heatmaps.npz` と `.gaze_meta.json`
+
+`objects.csv` の再利用判定には主に次を使います。
+
+- 入力ファイルパス
+- 入力ファイル更新時刻
+- Detection threshold
+- Object frame interval
+- Object smoothing window
+- 選択クラス
+- BoT-SORT 設定
+- 現在の pose ベース人物追跡形式で作られたキャッシュか
+
+視線キャッシュの再利用判定には主に次を使います。
+
+- 入力ファイルパス
+- 入力ファイル更新時刻
+- Detection threshold
+- Gaze frame interval
+- Gaze smoothing window
+- `objects.csv` の更新時刻
+
+不一致があれば、UI 上で警告したうえで `Force reuse` を選べます。
 
 ### 出力ファイル
-入力種別と可視化モードに応じて、以下のようなファイルが出力されます。
+現在の出力には次が含まれます。
 
 - `objects.csv`
-  - 物体検出・追跡結果
+  - 平滑化後の物体・人物追跡結果
+- `.objects_meta.json`
+  - 物体キャッシュ再利用用メタデータ
 - `gaze.csv`
-  - 顔検出と視線推定結果
-  - 生のサンプル値と、補間・平滑化後の値の両方を含みます
+  - 顔検出、raw gaze、処理後 gaze point、画面外方向を含む結果
+- `gaze_heatmaps.npz`
+  - 密な視線ヒートマップのキャッシュ
+- `.gaze_meta.json`
+  - 視線キャッシュ再利用用メタデータ
 - `annotation.csv`
-  - ELAN 形式に近い視線アノテーション要約
+  - ELAN 風の視線区間、または画像用の単一ラベル
 - `all_points.jpg`
-  - 画像入力時の点可視化結果
+  - 画像入力の点可視化
 - `all_points.mp4`
-  - 動画入力時の点可視化結果
-- `person_1_heatmap.jpg`, `person_2_heatmap.jpg`, ...
-  - 画像入力時の人物別ヒートマップ結果
-- `person_1_heatmap.mp4`, `person_2_heatmap.mp4`, ...
-  - 動画入力時の人物別ヒートマップ結果
+  - 動画入力の点可視化
+- `person_<track_id>_heatmap.jpg`
+  - 画像入力の人物別ヒートマップ
+- `person_<track_id>_heatmap.mp4`
+  - 動画入力の人物別ヒートマップ
 
-`temp` や `heatmaps` のような一時ディレクトリは出力完了後に削除され、最終成果物だけが残るようになっています。
+中間フォルダ `temp/` と `heatmaps/` は書き出し後に削除されます。
 
-### 注意点
-- 現在のファイル選択ダイアログは、macOS の `osascript` を使ったネイティブ選択を利用しています。
-- 同じ出力ディレクトリを再実行し、`Reuse existing objects.csv when available` を有効にしている場合、物体検出をスキップして前回の `objects.csv` を再利用することがあります。
-- ヒートマップは、複数人分を同一画面に重ねると見づらいため、人物ごとに分けて出力します。
-- 動画では、視線を毎フレーム必ず推定しているわけではありません。疎に推定した結果を時間方向に補間・平滑化しています。
+### CSV の主な列
+`objects.csv`:
 
-### 免責事項
-- 本ソフトウェアは自己責任で使用してください。
-- EAGLE はアノテーション補助ツールであり、検出結果、視線推定結果、出力アノテーションの正確性を保証しません。
-- 最終的な確認、修正、承認の責任は利用者にあります。
-- 本ツールの出力に基づいて生じたいかなる結果についても、著者および配布者は責任を負いません。
+- `frame_idx`
+- `cls`
+- `track_id`
+- `source`
+- `conf`
+- `x1`, `y1`, `x2`, `y2`
+- `pose_keypoints`
+- `label`
 
-### トラブルシュート
-- 初回起動時のモデル読み込みで失敗した場合は、インターネット接続ありの状態で再実行してください。
-- 物体検出までは進むのに視線モデルの読み込みで失敗する場合、アプリ UI ではなく torch hub や GAZELLE の取得失敗であることが多いです。
-- 同じマシンで一度必要ファイルの取得が終われば、その後の起動はかなり安定しやすくなります。
+`gaze.csv`:
 
-### 動作確認
-コード全体の文法確認には以下を使っています。
+- `frame_idx`
+- `track_id`
+- `face_detected`
+- `face_conf`
+- `face_x1`, `face_y1`, `face_x2`, `face_y2`
+- `raw_gaze_detected`
+- `raw_inout`
+- `raw_x_gaze`, `raw_y_gaze`
+- `gaze_detected`
+- `inout`
+- `x_gaze`, `y_gaze`
+- `offscreen_direction`
+- `offscreen_yaw`
+- `offscreen_pitch`
+
+`annotation.csv`:
+
+- `tier`
+- `start_time`
+- `end_time`
+- `gaze`
+
+### 開発用の入口
+- [`app.py`](/Users/taigamori/Works/EAGLE/app.py)
+  - Streamlit UI とランチャー
+- [`main.py`](/Users/taigamori/Works/EAGLE/main.py)
+  - ローカル確認用の最小スモークテスト
+- [`eagle/pipeline.py`](/Users/taigamori/Works/EAGLE/eagle/pipeline.py)
+  - Python API の入口
+
+最小コード例:
+
+```python
+from eagle import EAGLE
+
+eagle = EAGLE()
+eagle.preprocess(
+    input_path="input.mp4",
+    output_dir="output_dir",
+    det_thresh=0.5,
+    device="cpu",
+    visualization_mode="both",
+)
+results = eagle.run_all()
+```
+
+### 確認
 
 ```bash
 python -m py_compile main.py app.py eagle/*.py
 ```
 
-### 謝辞
-このアプリは、複数の優れたオープンソースモデル・プロジェクトを土台として成り立っています。著者のみなさま、メンテナのみなさまに深く感謝します。
+### 免責
+- 本ソフトウェアは自己責任で使用してください。
+- 検出結果、視線推定、ターゲット割当、注釈出力の正確性は保証されません。
+- 最終的な確認と修正の責任は利用者にあります。
 
+### 謝辞
 - Ultralytics YOLO
-  - 物体検出と追跡統合
   - https://docs.ultralytics.com/
 - BoT-SORT
-  - 多物体追跡
   - https://github.com/NirAharon/BoT-SORT
 - RetinaFace
-  - 顔検出
   - https://github.com/serengil/retinaface
-- GAZELLE / Gaze-LLE
-  - 視線先推定
+- GAZELLE
   - https://github.com/fkryan/gazelle
-- DINOv2
-  - GAZELLE で使われる視覚バックボーン
-  - https://github.com/facebookresearch/dinov2
-
-このアプリは、こうした研究とオープンソースの積み重ねの上に成り立っています。素晴らしい公開にあらためて感謝します。
+- MobileOne gaze-estimation weights
+  - https://github.com/yakhyo/gaze-estimation
