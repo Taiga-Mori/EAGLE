@@ -33,4 +33,4 @@ RUN chmod +x /app/ffmpeg/AMD/ffmpeg
 
 EXPOSE 8501
 
-CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true", "--global.developmentMode=false"]
+CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true", "--global.developmentMode=false", "--server.fileWatcherType=none"]
