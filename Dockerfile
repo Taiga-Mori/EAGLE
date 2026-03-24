@@ -1,11 +1,15 @@
-FROM python:3.11-slim
+FROM python:3.10-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     STREAMLIT_SERVER_HEADLESS=true \
     STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
-    EAGLE_DOCKER=1
+    EAGLE_DOCKER=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1
 
 WORKDIR /app
 
@@ -23,9 +27,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt /tmp/requirements.txt
 
-RUN grep -Ev '^(altgraph|appnope|macholib|pyinstaller|pyinstaller-hooks-contrib)==.*' /tmp/requirements.txt > /tmp/requirements-docker.txt \
+RUN grep -Ev '^(altgraph|appnope|macholib|pyinstaller|pyinstaller-hooks-contrib|torch|torchvision|torchaudio)==.*' /tmp/requirements.txt > /tmp/requirements-docker.txt \
  && python -m pip install --upgrade pip setuptools wheel \
- && python -m pip install -r /tmp/requirements-docker.txt
+ && python -m pip install -r /tmp/requirements-docker.txt \
+ && python -m pip install "numpy<2" \
+ && python -m pip install \
+      --extra-index-url https://download.pytorch.org/whl/cu113 \
+      torch==1.12.1+cu113 \
+      torchvision==0.13.1+cu113
 
 COPY . /app
 
