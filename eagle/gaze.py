@@ -1110,10 +1110,12 @@ class FaceGazeEstimator:
         vertical_threshold = 12.0
 
         horizontal = ""
+        # Use person-centric left/right labels (not screen-centric).
+        # Positive yaw means the face turns to the person's right.
         if yaw_deg >= horizontal_threshold:
-            horizontal = "left"
-        elif yaw_deg <= -horizontal_threshold:
             horizontal = "right"
+        elif yaw_deg <= -horizontal_threshold:
+            horizontal = "left"
 
         vertical = ""
         if pitch_deg >= vertical_threshold:
