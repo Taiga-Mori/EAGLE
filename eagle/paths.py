@@ -25,7 +25,8 @@ class PathManager:
         elif sys.platform.startswith("win"):
             ffmpeg_path = working_dir / "ffmpeg" / "win" / "ffmpeg.exe"
         else:
-            raise RuntimeError("Unsupported OS")
+            bundled_linux_ffmpeg = working_dir / "ffmpeg" / "AMD" / "ffmpeg"
+            ffmpeg_path = bundled_linux_ffmpeg if bundled_linux_ffmpeg.exists() else Path("ffmpeg")
 
         self.paths = AppPaths(
             working_dir=working_dir,

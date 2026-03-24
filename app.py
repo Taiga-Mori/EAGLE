@@ -165,6 +165,8 @@ def reset_to_start(st) -> None:
 
 
 def browse_input_file() -> Path | None:
+    if sys.platform != "darwin":
+        return None
     try:
         result = subprocess.run(
             [
@@ -354,7 +356,7 @@ def main() -> None:
             input_path_str = st.text_input(
                 "Input file",
                 value=st.session_state.selected_input_path,
-                disabled=True,
+                disabled=sys.platform == "darwin",
             )
         with col_browse:
             st.write("")
@@ -364,6 +366,8 @@ def main() -> None:
                 if selected_path is not None:
                     st.session_state.selected_input_path = str(selected_path)
                     st.rerun()
+        if sys.platform != "darwin":
+            st.caption("Linux containers do not support the native Browse dialog. Enter the mounted input path manually.")
 
         input_path = Path(input_path_str) if input_path_str else None
         output_dir_default = default_output_dir(input_path)
