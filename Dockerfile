@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     libxext6 \
     libxrender1 \
+    patchelf \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /tmp/requirements.txt
@@ -34,7 +35,8 @@ RUN grep -Ev '^(altgraph|appnope|macholib|pyinstaller|pyinstaller-hooks-contrib|
  && python -m pip install \
       --extra-index-url https://download.pytorch.org/whl/cu113 \
       torch==1.12.1+cu113 \
-      torchvision==0.13.1+cu113
+      torchvision==0.13.1+cu113 \
+ && (find /usr/local/lib/python3.10/site-packages/torch -name "*.so" -exec patchelf --clear-execstack {} \; || true)
 
 COPY . /app
 
