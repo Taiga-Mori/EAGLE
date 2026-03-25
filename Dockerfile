@@ -15,6 +15,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    binutils \
     git \
     libgl1 \
     libglib2.0-0 \
@@ -36,7 +37,9 @@ RUN grep -Ev '^(altgraph|appnope|macholib|pyinstaller|pyinstaller-hooks-contrib|
       --extra-index-url https://download.pytorch.org/whl/cu113 \
       torch==1.12.1+cu113 \
       torchvision==0.13.1+cu113 \
- && (find /usr/local/lib/python3.10/site-packages/torch -name "*.so" -exec patchelf --clear-execstack {} \; || true)
+ && find /usr/local/lib/python3.10/site-packages/torch -name "*.so*" -exec patchelf --clear-execstack {} \; \
+ && readelf -W -l /usr/local/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so | grep GNU_STACK \
+ && ! readelf -W -l /usr/local/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so | grep -q "RWE"
 
 COPY . /app
 
