@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     libxext6 \
     libxrender1 \
+    patchelf \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /tmp/requirements.txt
@@ -40,7 +41,6 @@ RUN grep -Ev '^(altgraph|appnope|macholib|pyinstaller|pyinstaller-hooks-contrib|
  && find /usr/local/lib/python3.10/site-packages/torch -name "*.so*" -exec patchelf --clear-execstack {} \; \
  && readelf -W -l /usr/local/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so | grep GNU_STACK \
  && ! readelf -W -l /usr/local/lib/python3.10/site-packages/torch/lib/libtorch_cpu.so | grep -q "RWE"
-
 
 COPY . /app
 
