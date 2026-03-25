@@ -17,8 +17,13 @@ class DeviceManager:
 
         self.device_options: list[str] = []
         if torch.cuda.is_available():
-            self.default_device = "cuda"
-            self.device_options.append("cuda")
+            cuda_count = int(torch.cuda.device_count())
+            if cuda_count > 1:
+                self.default_device = "cuda:0"
+                self.device_options.extend([f"cuda:{idx}" for idx in range(cuda_count)])
+            else:
+                self.default_device = "cuda:0"
+                self.device_options.append("cuda:0")
         elif torch.backends.mps.is_available():
             self.default_device = "mps"
             self.device_options.append("mps")

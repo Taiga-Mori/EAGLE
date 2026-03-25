@@ -115,6 +115,12 @@ class ModelManager:
             ) from exc
 
     def load(self, device: str) -> None:
+        if device.startswith("cuda:"):
+            try:
+                torch.cuda.set_device(torch.device(device))
+            except Exception:
+                # Keep existing behavior if runtime cannot switch devices explicitly.
+                pass
         self.ensure_yolo_weights()
         self.ensure_yolo_pose_weights()
         self.ensure_mobile_gaze_weights()

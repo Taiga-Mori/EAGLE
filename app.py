@@ -478,10 +478,16 @@ def main() -> None:
         output_dir = output_parent_dir / (output_name or output_dir_default.name)
         media_type = detect_media_type(annotator, input_path)
 
+        selected_device = st.session_state.get("device", annotator.device_options[0])
+        if selected_device == "cuda" and "cuda:0" in annotator.device_options:
+            selected_device = "cuda:0"
+        if selected_device not in annotator.device_options:
+            selected_device = annotator.device_options[0]
+
         device = st.selectbox(
             "Device",
             options=annotator.device_options,
-            index=annotator.device_options.index(st.session_state.get("device", annotator.device_options[0])),
+            index=annotator.device_options.index(selected_device),
         )
 
         if input_path is None:

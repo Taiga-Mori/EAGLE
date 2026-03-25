@@ -114,7 +114,7 @@ Output directory behavior:
 - `Output folder name`
   - Folder created next to the input file.
 - `Device`
-  - Uses `cuda`, `mps`, or `cpu` depending on availability.
+  - Uses `cuda:0`, `cuda:1`, ... when multiple NVIDIA GPUs are available (otherwise `mps` or `cpu`).
 
 #### Inference
 - `Detection threshold`
@@ -409,7 +409,7 @@ venv/bin/streamlit run app.py
 - `Output folder name`
   - 入力ファイルの隣に作られるフォルダ名です。
 - `Device`
-  - 利用可能なら `cuda`、`mps`、それ以外は `cpu` を使います。
+  - NVIDIA GPU が複数ある場合は `cuda:0`、`cuda:1`... を選べます（それ以外は `mps` または `cpu`）。
 
 #### Inference
 - `Detection threshold`
