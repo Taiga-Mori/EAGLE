@@ -4,6 +4,7 @@ import ssl
 from urllib.request import urlopen
 
 import torch
+import torch.nn.functional as F
 from torchvision import transforms
 from retinaface.pre_trained_models import get_model
 from ultralytics import YOLO
@@ -29,6 +30,7 @@ class ModelManager:
 
     def _configure_download_environment(self) -> None:
         os.environ.setdefault("TORCH_HOME", str(self.paths.torch_home))
+        self._ensure_torch_attention_compat()
         try:
             import certifi
 
@@ -39,6 +41,43 @@ class ModelManager:
         except Exception:
             self._ssl_context = None
         torch.hub.set_dir(str(self.paths.torch_hub_dir))
+
+    def _ensure_torch_attention_compat(self) -> None:
+        """Provide torch<2.0 compatibility for models expecting SDP attention."""
+        if hasattr(F, "scaled_dot_product_attention"):
+            return
+
+        def _scaled_dot_product_attention(
+            query: torch.Tensor,
+            key: torch.Tensor,
+            value: torch.Tensor,
+            attn_mask: torch.Tensor | None = None,
+            dropout_p: float = 0.0,
+            is_causal: bool = False,
+            scale: float | None = None,
+        ) -> torch.Tensor:
+            d_k = query.size(-1)
+            scale_factor = (1.0 / (d_k**0.5)) if scale is None else float(scale)
+            attn = torch.matmul(query, key.transpose(-2, -1)) * scale_factor
+
+            if is_causal:
+                q_len = query.size(-2)
+                k_len = key.size(-2)
+                causal_mask = torch.ones((q_len, k_len), device=query.device, dtype=torch.bool).triu(1)
+                attn = attn.masked_fill(causal_mask, float("-inf"))
+
+            if attn_mask is not None:
+                if attn_mask.dtype == torch.bool:
+                    attn = attn.masked_fill(~attn_mask, float("-inf"))
+                else:
+                    attn = attn + attn_mask
+
+            attn = torch.softmax(attn, dim=-1)
+            if dropout_p and dropout_p > 0.0:
+                attn = torch.dropout(attn, dropout_p, train=False)
+            return torch.matmul(attn, value)
+
+        F.scaled_dot_product_attention = _scaled_dot_product_attention
 
     def ensure_yolo_weights(self) -> None:
         self._ensure_download(
