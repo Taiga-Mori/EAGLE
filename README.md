@@ -1,5 +1,8 @@
 # EAGLE
-EAGLE: End-to-end Automatic Gaze LabEling tool for interaction studies
+<p align="center">
+  EAGLE: <strong>E</strong>nd-to-end <strong>A</strong>utomatic <strong>G</strong>aze <strong>L</strong>ab<strong>E</strong>ling tool for interaction studies
+</p>
+
 
 <p align="center">
   <img src="assets/icon_name_trans.png" alt="EAGLE app icon" width="280" />
