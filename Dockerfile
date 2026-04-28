@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt /tmp/requirements.txt
 
-RUN grep -Ev '^(altgraph|appnope|macholib|pyinstaller|pyinstaller-hooks-contrib|torch|torchvision|torchaudio)==.*' /tmp/requirements.txt > /tmp/requirements-docker.txt \
+RUN grep -Ev '^(torch|torchvision)==.*' /tmp/requirements.txt > /tmp/requirements-docker.txt \
  && python -m pip install --upgrade pip setuptools wheel \
  && python -m pip install -r /tmp/requirements-docker.txt \
  && python -m pip install "numpy<2" \
