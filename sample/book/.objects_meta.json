@@ -1,0 +1,24 @@
+{
+  "raw_detection_cache": true,
+  "media_path": "/Users/taigamori/Downloads/book.mp4",
+  "media_mtime_ns": 1777365481467474151,
+  "det_thresh": 0.5,
+  "object_stride": 1,
+  "object_smoothing_window": 5,
+  "person_detection_source": "pose",
+  "includes_non_person_detections": true,
+  "tracker_config": {
+    "tracker_type": "botsort",
+    "track_high_thresh": 0.25,
+    "track_low_thresh": 0.1,
+    "new_track_thresh": 0.25,
+    "track_buffer": 30,
+    "match_thresh": 0.8,
+    "fuse_score": true,
+    "gmc_method": "none",
+    "proximity_thresh": 0.5,
+    "appearance_thresh": 0.8,
+    "with_reid": false,
+    "model": "auto"
+  }
+}

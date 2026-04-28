@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 from .constants import OBJECT_COLUMNS
-from .types import GazePoint
+from .types import FaceDetection, GazePoint
 
 
 class GazePointResolver:
@@ -153,6 +153,39 @@ class GazeTemporalProcessor:
     def __init__(self, point_resolver: GazePointResolver | None = None) -> None:
         self.point_resolver = point_resolver or GazePointResolver()
 
+    def interpolate_faces(
+        self,
+        frame_indices: list[int],
+        raw_face_maps_by_frame: dict[int, dict[int, FaceDetection]],
+        object_df: pd.DataFrame,
+    ) -> dict[int, dict[int, FaceDetection]]:
+        dense_face_maps_by_frame: dict[int, dict[int, FaceDetection]] = {frame_idx: {} for frame_idx in frame_indices}
+        person_df = object_df[object_df["cls"] == "person"].copy()
+        if person_df.empty:
+            return dense_face_maps_by_frame
+
+        person_df["track_id"] = person_df["track_id"].astype(str)
+        frame_index_set = set(frame_indices)
+
+        for track_id, group in person_df.groupby("track_id", sort=False):
+            track_frames = sorted(int(frame_idx) for frame_idx in group["frame_idx"].tolist() if int(frame_idx) in frame_index_set)
+            if not track_frames:
+                continue
+
+            sparse_faces = [
+                (frame_idx, raw_face_maps_by_frame[frame_idx][track_id])
+                for frame_idx in track_frames
+                if track_id in raw_face_maps_by_frame.get(frame_idx, {})
+            ]
+            if not sparse_faces:
+                continue
+
+            dense_faces = self._interpolate_face_track(track_id, track_frames, sparse_faces)
+            for frame_idx, face in dense_faces.items():
+                dense_face_maps_by_frame.setdefault(frame_idx, {})[track_id] = face
+
+        return dense_face_maps_by_frame
+
     def interpolate_and_smooth(
         self,
         frame_indices: list[int],
@@ -229,6 +262,46 @@ class GazeTemporalProcessor:
                 frame_width=prev_gaze.frame_width,
                 frame_height=prev_gaze.frame_height,
             )
+        return dense_series
+
+    def _interpolate_face_track(
+        self,
+        track_id: str,
+        track_frames: list[int],
+        sparse_faces: list[tuple[int, FaceDetection]],
+    ) -> dict[int, FaceDetection]:
+        dense_series: dict[int, FaceDetection] = {}
+        sparse_frames = [frame_idx for frame_idx, _ in sparse_faces]
+
+        for frame_idx in track_frames:
+            prev_idx = max((i for i, sparse_frame in enumerate(sparse_frames) if sparse_frame <= frame_idx), default=None)
+            next_idx = min((i for i, sparse_frame in enumerate(sparse_frames) if sparse_frame >= frame_idx), default=None)
+
+            if prev_idx is None and next_idx is None:
+                continue
+            if prev_idx is None:
+                dense_series[frame_idx] = sparse_faces[next_idx][1]
+                continue
+            if next_idx is None:
+                dense_series[frame_idx] = sparse_faces[prev_idx][1]
+                continue
+
+            prev_frame, prev_face = sparse_faces[prev_idx]
+            next_frame, next_face = sparse_faces[next_idx]
+            if prev_frame == next_frame:
+                dense_series[frame_idx] = prev_face
+                continue
+
+            ratio = (frame_idx - prev_frame) / (next_frame - prev_frame)
+            dense_series[frame_idx] = FaceDetection(
+                track_id=track_id,
+                conf=float((1.0 - ratio) * prev_face.conf + ratio * next_face.conf),
+                x1=int(round((1.0 - ratio) * prev_face.x1 + ratio * next_face.x1)),
+                y1=int(round((1.0 - ratio) * prev_face.y1 + ratio * next_face.y1)),
+                x2=int(round((1.0 - ratio) * prev_face.x2 + ratio * next_face.x2)),
+                y2=int(round((1.0 - ratio) * prev_face.y2 + ratio * next_face.y2)),
+            )
+
         return dense_series
 
     def _smooth_track(self, dense_series: dict[int, GazePoint], window: int, point_method: str) -> dict[int, GazePoint]:

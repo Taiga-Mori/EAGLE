@@ -77,13 +77,6 @@ class ConfigManager:
             raise ValueError("object_smoothing_window must be at least 1")
         if gaze_smoothing_window < 1:
             raise ValueError("gaze_smoothing_window must be at least 1")
-        if (
-            object_target_fps is not None
-            and gaze_target_fps is not None
-            and float(gaze_target_fps) > float(object_target_fps)
-        ):
-            raise ValueError("gaze_target_fps must be less than or equal to object_target_fps")
-
         normalized_selected_classes = self.normalize_selected_object_classes(selected_object_classes)
 
         return PipelineConfig(

@@ -534,7 +534,7 @@ def main() -> None:
                     "Gaze target radius (px)",
                     min_value=0,
                     step=1,
-                    value=int(st.session_state.get("gaze_target_radius", 0)),
+                    value=int(st.session_state.get("gaze_target_radius", 15)),
                     help="0 means point-only target assignment. Larger values use a circle around the gaze point.",
                 )
             )
@@ -543,7 +543,7 @@ def main() -> None:
                     "Person part distance scale",
                     min_value=0.01,
                     step=0.01,
-                    value=float(st.session_state.get("person_part_distance_scale", 0.22)),
+                    value=float(st.session_state.get("person_part_distance_scale", 0.10)),
                     help="Scales how far from each keypoint a gaze can be and still count as that body part.",
                 )
             )
@@ -559,6 +559,7 @@ def main() -> None:
             saved_selected_classes = normalize_selected_classes(
                 st.session_state.get("selected_object_classes", list(COCO_OBJECT_CLASSES))
             )
+            alphabetized_object_classes = sorted(COCO_OBJECT_CLASSES)
 
             track_all_classes = st.checkbox(
                 "Track all object classes",
@@ -573,10 +574,11 @@ def main() -> None:
                     if len(saved_selected_classes) != len(COCO_OBJECT_CLASSES)
                     else ["person"]
                 )
+                selected_class_defaults = sorted(selected_class_defaults)
                 st.caption("Pick only the object classes you want to keep.")
                 selected_object_classes = st.multiselect(
                     "Object classes to keep",
-                    options=COCO_OBJECT_CLASSES,
+                    options=alphabetized_object_classes,
                     default=selected_class_defaults,
                     placeholder="Choose object classes",
                 )
@@ -628,9 +630,6 @@ def main() -> None:
                             value=int(st.session_state.get("gaze_frame_interval", 1)),
                         )
                     )
-                if gaze_frame_interval < object_frame_interval:
-                    st.warning("Gaze frame interval should be greater than or equal to object frame interval.")
-
             st.subheader("BoT-SORT")
             col5, col6 = st.columns(2)
             with col5:

@@ -19,6 +19,13 @@ EAGLE is a Streamlit-based gaze annotation support tool for image and video anal
 
 EAGLE is an annotation assistance tool, not guaranteed ground truth. You must review and validate all outputs before using them in research, analysis, reporting, or decision-making.
 
+### Example Outputs
+<p align="center">
+  <img src="assets/book.gif" alt="EAGLE example output: book" width="31%" />
+  <img src="assets/interview.gif" alt="EAGLE example output: interview" width="31%" />
+  <img src="assets/three.gif" alt="EAGLE example output: three people" width="31%" />
+</p>
+
 ### What The Current System Does
 For each input image or video, the current pipeline can:
 
@@ -43,6 +50,10 @@ For person detections, EAGLE also uses pose keypoints to assign gaze to body par
 - The core pipeline itself is regular Python code under [`eagle/`](/Users/taigamori/Works/EAGLE/eagle).
 - Bundled FFmpeg binaries are included for macOS and Windows.
 - Model files are cached under `~/.EAGLE/`.
+
+### License
+This project is licensed under `AGPL-3.0-or-later`.
+See [LICENSE](/Users/taigamori/Works/EAGLE/LICENSE) for the repository license text.
 
 ### Setup
 Create a virtual environment and install dependencies:
@@ -146,7 +157,8 @@ Output directory behavior:
 
 Important:
 
-- `Gaze frame interval` must be greater than or equal to `Object frame interval`.
+- `Gaze frame interval` can be smaller than `Object frame interval`.
+  Object tracks are linearly interpolated between detection frames, and video outputs are rendered at the source FPS.
 - Internally, video settings are converted to target FPS values from the source FPS.
 
 #### BoT-SORT
@@ -441,7 +453,8 @@ venv/bin/streamlit run app.py
 
 注意:
 
-- `Gaze frame interval` は `Object frame interval` 以上である必要があります。
+- `Gaze frame interval` は `Object frame interval` より小さくできます。
+  Object track は検出フレーム間で線形補間され、動画出力は元動画の FPS で描画されます。
 - 内部的には動画 FPS から target FPS に変換して処理します。
 
 #### BoT-SORT

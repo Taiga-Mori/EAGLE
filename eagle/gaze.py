@@ -270,20 +270,30 @@ class FaceGazeEstimator:
     ) -> dict[int, dict[int, GazePoint]]:
         point_enabled = self._point_enabled(visualization_mode)
         heatmap_enabled = self._heatmap_enabled(visualization_mode)
-        face_maps_by_frame: dict[int, dict[int, FaceDetection]] = {}
+        raw_face_maps_by_frame: dict[int, dict[int, FaceDetection]] = {}
         sparse_gaze_by_frame: dict[int, dict[int, GazePoint]] = {}
-        self._collect_sparse_gazes(
+        self._collect_raw_faces_video(
             context,
             object_df,
-            device,
             det_thresh,
+            raw_face_maps_by_frame,
+            progress_bar,
+        )
+        face_maps_by_frame = self.temporal_processor.interpolate_faces(
+            frame_indices=list(range(context.total_frames)),
+            raw_face_maps_by_frame=raw_face_maps_by_frame,
+            object_df=object_df,
+        )
+        self._collect_sparse_gazes(
+            context,
+            device,
             gaze_point_method,
             face_maps_by_frame,
             sparse_gaze_by_frame,
             progress_bar,
         )
         dense_gaze_by_frame = self.temporal_processor.interpolate_and_smooth(
-            frame_indices=context.object_frame_idx,
+            frame_indices=list(range(context.total_frames)),
             face_maps_by_frame=face_maps_by_frame,
             sparse_gaze_by_frame=sparse_gaze_by_frame,
             smoothing_window=gaze_smoothing_window,
@@ -332,15 +342,12 @@ class FaceGazeEstimator:
         if not capture.isOpened():
             raise FileNotFoundError(f"Could not open video: {context.media_path}")
 
-        object_frame_set = set(context.object_frame_idx)
         estimates_by_frame: dict[int, dict[str, dict[str, float | str]]] = {}
         try:
             for frame_idx in range(context.total_frames):
                 ret, frame = capture.read()
                 if not ret:
                     break
-                if frame_idx not in object_frame_set:
-                    continue
                 estimates = self.detect_offscreen_directions(
                     frame,
                     face_maps_by_frame.get(frame_idx, {}),
@@ -398,12 +405,34 @@ class FaceGazeEstimator:
 
         return directions_by_frame, angles_by_frame
 
-    def _collect_sparse_gazes(
+    def _collect_raw_faces_video(
         self,
         context: MediaContext,
         object_df: pd.DataFrame,
-        device: str,
         det_thresh: float,
+        face_maps_by_frame: dict[int, dict[int, FaceDetection]],
+        progress_bar=None,
+    ) -> None:
+        capture = cv2.VideoCapture(str(context.media_path))
+        if not capture.isOpened():
+            raise FileNotFoundError(f"Could not open video: {context.media_path}")
+
+        try:
+            for frame_idx in range(context.total_frames):
+                ret, frame = capture.read()
+                if not ret:
+                    break
+
+                frame_objects = object_df[object_df["frame_idx"] == frame_idx].to_dict(orient="records")
+                face_map = self.detect_faces_for_frame(frame, frame_objects, det_thresh)
+                face_maps_by_frame[frame_idx] = face_map
+        finally:
+            capture.release()
+
+    def _collect_sparse_gazes(
+        self,
+        context: MediaContext,
+        device: str,
         gaze_point_method: str,
         face_maps_by_frame: dict[int, dict[int, FaceDetection]],
         sparse_gaze_by_frame: dict[int, dict[int, GazePoint]],
@@ -413,7 +442,6 @@ class FaceGazeEstimator:
         if not capture.isOpened():
             raise FileNotFoundError(f"Could not open video: {context.media_path}")
 
-        object_frame_set = set(context.object_frame_idx)
         gaze_frame_set = set(context.gaze_frame_idx)
         expected_steps = max(1, len(context.gaze_frame_idx))
         gaze_step = 0
@@ -423,16 +451,17 @@ class FaceGazeEstimator:
                 ret, frame = capture.read()
                 if not ret:
                     break
-                if frame_idx not in object_frame_set:
+                if frame_idx not in gaze_frame_set:
                     continue
 
-                frame_objects = object_df[object_df["frame_idx"] == frame_idx].to_dict(orient="records")
-                face_map = self.detect_faces_for_frame(frame, frame_objects, det_thresh)
-                face_maps_by_frame[frame_idx] = face_map
-                if frame_idx in gaze_frame_set:
-                    sparse_gaze_by_frame[frame_idx] = self.detect_gazes(frame, face_map, device, gaze_point_method)
-                    gaze_step += 1
-                    self._update_progress(progress_bar, gaze_step, expected_steps, "Detecting face & gaze...")
+                sparse_gaze_by_frame[frame_idx] = self.detect_gazes(
+                    frame,
+                    face_maps_by_frame.get(frame_idx, {}),
+                    device,
+                    gaze_point_method,
+                )
+                gaze_step += 1
+                self._update_progress(progress_bar, gaze_step, expected_steps, "Detecting face & gaze...")
         finally:
             capture.release()
 
@@ -461,8 +490,7 @@ class FaceGazeEstimator:
 
         point_enabled = self._point_enabled(visualization_mode)
         heatmap_enabled = self._heatmap_enabled(visualization_mode)
-        object_frame_set = set(context.object_frame_idx)
-        expected_steps = max(1, len(context.object_frame_idx))
+        expected_steps = max(1, context.total_frames)
         render_step = 0
         frame_name_width = len(str(context.total_frames - 1))
         if heatmap_enabled:
@@ -476,8 +504,6 @@ class FaceGazeEstimator:
                 ret, frame = render_capture.read()
                 if not ret:
                     break
-                if frame_idx not in object_frame_set:
-                    continue
 
                 frame_objects = object_df[object_df["frame_idx"] == frame_idx].to_dict(orient="records")
                 visible_objects = self._filter_visible_objects(frame_objects, selected_object_classes)
@@ -982,9 +1008,7 @@ class FaceGazeEstimator:
             matching_faces = []
             for face in valid_faces:
                 fx1, fy1, fx2, fy2 = map(int, face["bbox"])
-                center_x = (fx1 + fx2) / 2
-                center_y = (fy1 + fy2) / 2
-                if x1 <= center_x <= x2 and y1 <= center_y <= y2:
+                if x1 <= fx1 and y1 <= fy1 and fx2 <= x2 and fy2 <= y2:
                     matching_faces.append(face)
             if not matching_faces:
                 continue

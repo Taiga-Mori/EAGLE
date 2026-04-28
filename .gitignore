@@ -206,7 +206,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-sample/
+mysample/
 build/
 dist/
 .DS_Store
