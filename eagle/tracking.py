@@ -7,6 +7,7 @@ import yaml
 
 from .constants import OBJECT_COLUMNS
 from .models import ModelManager
+from .progress import update_progress
 from .temporal import ObjectTrackSmoother
 from .types import AppPaths, MediaContext
 
@@ -38,8 +39,12 @@ class ObjectTracker:
         )
         self._reassign_non_person_track_ids(raw_rows)
         self._report_detection_coverage(context, raw_rows)
+        self._update_progress(progress_bar, 0, 1, "Smoothing object tracks...")
         detections = self.smoother.smooth(raw_rows, context.total_frames, smoothing_window, context.media_type)
+        self._update_progress(progress_bar, 1, 1, "Smoothing object tracks...")
+        self._update_progress(progress_bar, 0, 1, "Saving objects.csv...")
         detections.to_csv(context.objects_path, index=False)
+        self._update_progress(progress_bar, 1, 1, "Saving objects.csv...")
         try:
             with self.paths.botsort_runtime_path.open("r", encoding="utf-8") as file:
                 tracker_config = yaml.safe_load(file) or {}
@@ -108,22 +113,25 @@ class ObjectTracker:
         expected_steps = max(1, len(context.object_frame_idx))
         stages = 1 + int(needs_non_person_detections)
         global_step = 0
+        update_interval = max(1, expected_steps // 200)
 
         for result_index, result in enumerate(self._run_pose_track(context, device)):
             raw_rows.extend(self._pose_rows_from_result(result_index, result, context, det_thresh))
             global_step += 1
-            self._update_progress(progress_bar, global_step, expected_steps * stages, "Detecting persons (pose)...")
+            if global_step == expected_steps or global_step % update_interval == 0:
+                self._update_progress(progress_bar, global_step, expected_steps * stages, "Detecting persons (pose)...")
 
         if needs_non_person_detections:
             for result_index, result in enumerate(self._run_object_track(context, device)):
                 raw_rows.extend(self._non_person_rows_from_result(result_index, result, context, det_thresh))
                 global_step += 1
-                self._update_progress(
-                    progress_bar,
-                    global_step,
-                    expected_steps * stages,
-                    "Detecting non-person objects...",
-                )
+                if result_index + 1 == expected_steps or (result_index + 1) % update_interval == 0:
+                    self._update_progress(
+                        progress_bar,
+                        global_step,
+                        expected_steps * stages,
+                        "Detecting non-person objects...",
+                    )
         else:
             self._notify_skip(
                 progress_bar,
@@ -161,14 +169,14 @@ class ObjectTracker:
 
     def _detect_image_persons(self, context: MediaContext, device: str, det_thresh: float) -> list[dict[str, Any]]:
         assert self.models.yolo_pose is not None
-        results = self.models.yolo_pose.predict(source=str(context.media_path), verbose=True, device=device)
+        results = self.models.yolo_pose.predict(source=str(context.media_path), verbose=False, device=device)
         if not results:
             return []
         return self._pose_rows_from_image_result(results[0], det_thresh)
 
     def _detect_image_non_persons(self, context: MediaContext, device: str, det_thresh: float) -> list[dict[str, Any]]:
         assert self.models.yolo is not None
-        results = self.models.yolo.predict(source=str(context.media_path), verbose=True, device=device)
+        results = self.models.yolo.predict(source=str(context.media_path), verbose=False, device=device)
         if not results:
             return []
         return self._non_person_rows_from_result(0, results[0], context, det_thresh)
@@ -178,7 +186,7 @@ class ObjectTracker:
         return self.models.yolo_pose.track(
             source=str(context.media_path),
             stream=True,
-            verbose=True,
+            verbose=False,
             tracker=str(self.paths.botsort_runtime_path),
             vid_stride=context.object_stride,
             device=device,
@@ -189,7 +197,7 @@ class ObjectTracker:
         return self.models.yolo.track(
             source=str(context.media_path),
             stream=True,
-            verbose=True,
+            verbose=False,
             tracker=str(self.paths.botsort_runtime_path),
             vid_stride=context.object_stride,
             device=device,
@@ -352,10 +360,7 @@ class ObjectTracker:
             return False
 
     def _update_progress(self, progress_bar, step: int, total: int, label: str) -> None:
-        if progress_bar is None:
-            return
-        ratio = min(step / max(total, 1), 1.0)
-        progress_bar.progress(ratio, text=f"{label} {round(ratio * 100)} %")
+        update_progress(progress_bar, step, total, label)
 
     def _report_detection_coverage(self, context: MediaContext, raw_rows: list[dict[str, Any]]) -> None:
         """Print how many frame results Ultralytics actually yielded."""

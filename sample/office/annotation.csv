@@ -1,0 +1,5 @@
+tier,start_time,end_time,gaze
+person 1_Gaze,0.0,4.916666666666667,person 2's face
+person 1_Gaze,4.916666666666667,5.833333333333333,other
+person 2_Gaze,0.0,5.291666666666667,person 1's face
+person 2_Gaze,5.291666666666667,5.833333333333333,other

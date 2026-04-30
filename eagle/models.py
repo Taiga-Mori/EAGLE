@@ -1,13 +1,24 @@
 import os
+import logging
 import shutil
 import ssl
+import warnings
 from urllib.request import urlopen
+
+os.environ.setdefault("YOLO_VERBOSE", "False")
+os.environ.setdefault("NO_ALBUMENTATIONS_UPDATE", "1")
+warnings.filterwarnings("ignore", message="Error fetching version info.*", module="albumentations.*")
 
 import torch
 import torch.nn.functional as F
 from torchvision import transforms
 from retinaface.pre_trained_models import get_model
 from ultralytics import YOLO
+
+try:
+    from ultralytics.utils import LOGGER as ULTRALYTICS_LOGGER
+except Exception:
+    ULTRALYTICS_LOGGER = None
 
 from .mobile_gaze import mobileone_s0_gaze
 from .types import AppPaths
@@ -30,6 +41,8 @@ class ModelManager:
 
     def _configure_download_environment(self) -> None:
         os.environ.setdefault("TORCH_HOME", str(self.paths.torch_home))
+        if ULTRALYTICS_LOGGER is not None:
+            ULTRALYTICS_LOGGER.setLevel(logging.ERROR)
         self._ensure_torch_attention_compat()
         try:
             import certifi

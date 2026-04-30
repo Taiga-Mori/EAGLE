@@ -12,6 +12,7 @@ from .annotate import FrameAnnotator
 from .body_parts import build_person_part_shapes, resolve_person_part_label
 from .constants import GAZE_COLUMNS
 from .models import ModelManager
+from .progress import update_progress
 from .temporal import GazePointResolver, GazeTemporalProcessor
 from .types import FaceDetection, GazePoint, GazeRecord, MediaContext
 
@@ -68,7 +69,9 @@ class FaceGazeEstimator:
         force_reuse_cached_gaze: bool = False,
         progress_bar=None,
     ) -> pd.DataFrame:
+        self._update_progress(progress_bar, 0, 1, "Loading objects.csv...")
         object_df = pd.read_csv(context.objects_path)
+        self._update_progress(progress_bar, 1, 1, "Loading objects.csv...")
         if object_df.empty:
             empty_df = pd.DataFrame(columns=GAZE_COLUMNS)
             empty_df.to_csv(context.gaze_path, index=False)
@@ -125,6 +128,7 @@ class FaceGazeEstimator:
                 progress_bar,
             )
 
+        self._update_progress(progress_bar, 0, 1, "Saving gaze outputs...")
         gaze_df = pd.DataFrame(records, columns=GAZE_COLUMNS)
         gaze_df.to_csv(context.gaze_path, index=False)
         self._save_heatmap_cache(
@@ -135,6 +139,7 @@ class FaceGazeEstimator:
             gaze_smoothing_window,
             det_thresh,
         )
+        self._update_progress(progress_bar, 1, 1, "Saving gaze outputs...")
         return gaze_df
 
     def _estimate_image(
@@ -279,11 +284,13 @@ class FaceGazeEstimator:
             raw_face_maps_by_frame,
             progress_bar,
         )
+        self._update_progress(progress_bar, 0, 1, "Interpolating faces...")
         face_maps_by_frame = self.temporal_processor.interpolate_faces(
             frame_indices=list(range(context.total_frames)),
             raw_face_maps_by_frame=raw_face_maps_by_frame,
             object_df=object_df,
         )
+        self._update_progress(progress_bar, 1, 1, "Interpolating faces...")
         self._collect_sparse_gazes(
             context,
             device,
@@ -292,6 +299,7 @@ class FaceGazeEstimator:
             sparse_gaze_by_frame,
             progress_bar,
         )
+        self._update_progress(progress_bar, 0, 1, "Interpolating gaze...")
         dense_gaze_by_frame = self.temporal_processor.interpolate_and_smooth(
             frame_indices=list(range(context.total_frames)),
             face_maps_by_frame=face_maps_by_frame,
@@ -299,17 +307,21 @@ class FaceGazeEstimator:
             smoothing_window=gaze_smoothing_window,
             point_method=gaze_point_method,
         )
+        self._update_progress(progress_bar, 1, 1, "Interpolating gaze...")
         offscreen_estimates_by_frame = self._collect_offscreen_estimates_video(
             context,
             face_maps_by_frame,
             dense_gaze_by_frame,
             det_thresh,
             device,
+            progress_bar,
         )
+        self._update_progress(progress_bar, 0, 1, "Smoothing off-screen directions...")
         (
             offscreen_directions_by_frame,
             offscreen_angles_by_frame,
         ) = self._smooth_offscreen_estimates(offscreen_estimates_by_frame, gaze_smoothing_window)
+        self._update_progress(progress_bar, 1, 1, "Smoothing off-screen directions...")
         self._render_video_outputs(
             context,
             object_df,
@@ -337,12 +349,15 @@ class FaceGazeEstimator:
         dense_gaze_by_frame: dict[int, dict[int, GazePoint]],
         det_thresh: float,
         device: str,
+        progress_bar=None,
     ) -> dict[int, dict[str, dict[str, float | str]]]:
         capture = cv2.VideoCapture(str(context.media_path))
         if not capture.isOpened():
             raise FileNotFoundError(f"Could not open video: {context.media_path}")
 
         estimates_by_frame: dict[int, dict[str, dict[str, float | str]]] = {}
+        expected_steps = max(1, context.total_frames)
+        update_interval = max(1, expected_steps // 200)
         try:
             for frame_idx in range(context.total_frames):
                 ret, frame = capture.read()
@@ -357,6 +372,14 @@ class FaceGazeEstimator:
                 )
                 if estimates:
                     estimates_by_frame[frame_idx] = estimates
+                offscreen_step = frame_idx + 1
+                if offscreen_step == expected_steps or offscreen_step % update_interval == 0:
+                    self._update_progress(
+                        progress_bar,
+                        offscreen_step,
+                        expected_steps,
+                        "Estimating off-screen directions...",
+                    )
         finally:
             capture.release()
         return estimates_by_frame
@@ -1225,10 +1248,7 @@ class FaceGazeEstimator:
         return context.heatmap_dir / f"person_{track_id}" / f"{frame_idx:06d}.jpg"
 
     def _update_progress(self, progress_bar, step: int, total: int, label: str) -> None:
-        if progress_bar is None:
-            return
-        ratio = min(step / max(total, 1), 1.0)
-        progress_bar.progress(ratio, text=f"{label} {round(ratio * 100)} %")
+        update_progress(progress_bar, step, total, label)
 
     def _resolve_target_label(
         self,
