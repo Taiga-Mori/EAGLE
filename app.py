@@ -2,6 +2,7 @@ from pathlib import Path
 import base64
 from functools import lru_cache
 import os
+import errno
 import signal
 import socket
 import subprocess
@@ -37,6 +38,30 @@ MEDIA_FILE_EXTENSIONS = {
     ".webm",
     ".m4v",
 }
+
+
+def raise_file_descriptor_limit(min_soft_limit: int = 4096) -> None:
+    if sys.platform == "win32":
+        return
+    try:
+        import resource
+
+        soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
+        target_soft_limit = max(int(soft_limit), int(min_soft_limit))
+        if hard_limit != resource.RLIM_INFINITY:
+            target_soft_limit = min(target_soft_limit, int(hard_limit))
+        if target_soft_limit > soft_limit:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target_soft_limit, hard_limit))
+    except Exception:
+        # Keep startup resilient if the platform denies raising the limit.
+        pass
+
+
+def terminate_current_process() -> None:
+    try:
+        os.kill(os.getpid(), signal.SIGTERM)
+    except Exception:
+        os._exit(0)
 
 
 def detect_media_type(annotator: EAGLE, input_path: Path | None) -> str | None:
@@ -179,9 +204,9 @@ def reset_to_start(st) -> None:
     st.session_state.state = "start"
 
 
-def browse_input_file() -> Path | None:
+def browse_input_file() -> tuple[Path | None, str | None]:
     if sys.platform != "darwin":
-        return None
+        return None, "Native file browsing is only available on macOS."
     try:
         result = subprocess.run(
             [
@@ -195,90 +220,24 @@ def browse_input_file() -> Path | None:
             check=True,
             capture_output=True,
             text=True,
+            close_fds=True,
         )
-    except subprocess.CalledProcessError:
-        return None
+    except subprocess.CalledProcessError as exc:
+        error_text = (exc.stderr or exc.stdout or str(exc)).strip()
+        return None, error_text or "The native file dialog could not be opened."
+    except OSError as exc:
+        if exc.errno == errno.EMFILE:
+            return (
+                None,
+                "Too many open files. The packaged app hit the macOS file descriptor limit while opening the native file dialog.",
+            )
+        return None, str(exc)
+    except Exception as exc:
+        return None, str(exc)
     selected = result.stdout.strip()
     if not selected:
-        return None
-    return Path(selected)
-
-
-def discover_container_browse_roots() -> list[Path]:
-    raw = os.getenv("EAGLE_BROWSE_ROOTS", "").strip()
-    configured = [Path(p.strip()) for p in raw.split(",") if p.strip()] if raw else []
-    defaults = [Path("/host_users"), Path("/data"), APP_DIR]
-    roots: list[Path] = []
-    seen: set[Path] = set()
-    for candidate in [*configured, *defaults]:
-        if candidate in seen:
-            continue
-        seen.add(candidate)
-        if candidate.exists() and candidate.is_dir():
-            roots.append(candidate)
-    return roots
-
-
-def list_directory_entries(directory: Path) -> tuple[list[Path], list[Path]]:
-    dirs: list[Path] = []
-    files: list[Path] = []
-    try:
-        for entry in directory.iterdir():
-            if entry.name.startswith("."):
-                continue
-            if entry.is_dir():
-                dirs.append(entry)
-            elif entry.is_file() and entry.suffix.lower() in MEDIA_FILE_EXTENSIONS:
-                files.append(entry)
-    except OSError:
-        return [], []
-    dirs.sort(key=lambda p: p.name.lower())
-    files.sort(key=lambda p: p.name.lower())
-    return dirs, files
-
-
-def render_container_file_browser(st) -> Path | None:
-    roots = discover_container_browse_roots()
-    if not roots:
-        st.warning("No browsable roots found in container. Mount a host directory first.")
-        return None
-
-    root_options = [str(root) for root in roots]
-    selected_root = st.selectbox("Browse root", root_options, key="container_browse_root")
-    root_path = Path(selected_root)
-
-    current_dir = Path(st.session_state.get("container_browse_dir", selected_root))
-    if not current_dir.exists() or not current_dir.is_dir() or root_path not in [current_dir, *current_dir.parents]:
-        current_dir = root_path
-    st.session_state.container_browse_dir = str(current_dir)
-
-    col_dir, col_parent = st.columns([5, 1])
-    with col_dir:
-        st.text_input("Current directory", value=str(current_dir), disabled=True)
-    with col_parent:
-        st.write("")
-        st.write("")
-        if st.button("Up", use_container_width=True, key="container_browse_up"):
-            if current_dir != root_path and root_path in current_dir.parents:
-                st.session_state.container_browse_dir = str(current_dir.parent)
-                st.rerun()
-
-    dirs, files = list_directory_entries(current_dir)
-    choices = [f"[DIR] {p.name}" for p in dirs] + [f"[FILE] {p.name}" for p in files]
-    if not choices:
-        st.info("No visible media files or subdirectories here.")
-        return None
-
-    selected = st.selectbox("Directory entries", choices, key="container_browse_entry")
-    if st.button("Open selected", use_container_width=True, key="container_browse_open"):
-        label, name = selected.split(" ", 1)
-        target = current_dir / name
-        if label == "[DIR]":
-            st.session_state.container_browse_dir = str(target)
-            st.rerun()
-        if label == "[FILE]":
-            return target
-    return None
+        return None, "No file was selected."
+    return Path(selected), None
 
 
 def default_output_dir(input_path: Path | None) -> Path:
@@ -309,6 +268,13 @@ def render_header(st) -> None:
         return
     st.title("EAGLE")
     st.caption("End-to-end Automatic Gaze LabEling tool for interaction studies")
+
+
+def render_quit_button(st) -> None:
+    col_left, col_right = st.columns([5, 1])
+    with col_right:
+        if st.button("Quit EAGLE", use_container_width=True):
+            terminate_current_process()
 
 
 @lru_cache(maxsize=1)
@@ -425,9 +391,11 @@ def _keep_launcher_alive(child: subprocess.Popen, port: int) -> None:
 
 
 def main() -> None:
+    raise_file_descriptor_limit()
     st = get_streamlit()
     st.set_page_config(page_title="EAGLE", layout="centered")
     render_header(st)
+    render_quit_button(st)
 
     if "annotator" not in st.session_state:
         st.session_state.annotator = EAGLE()
@@ -439,6 +407,8 @@ def main() -> None:
         st.session_state.error_message = None
     if "selected_input_path" not in st.session_state:
         st.session_state.selected_input_path = ""
+    if "browse_error_message" not in st.session_state:
+        st.session_state.browse_error_message = None
 
     annotator: EAGLE = st.session_state.annotator
     botsort_defaults = load_botsort_defaults(annotator)
@@ -450,23 +420,28 @@ def main() -> None:
             input_path_str = st.text_input(
                 "Input file",
                 value=st.session_state.selected_input_path,
-                disabled=sys.platform == "darwin",
+                disabled=False,
             )
         with col_browse:
             st.write("")
             st.write("")
             if st.button("Browse", use_container_width=True):
-                selected_path = browse_input_file()
+                selected_path, browse_error = browse_input_file()
                 if selected_path is not None:
                     st.session_state.selected_input_path = str(selected_path)
+                    st.session_state.browse_error_message = None
                     st.rerun()
+                if browse_error and browse_error != "No file was selected.":
+                    st.session_state.browse_error_message = browse_error
+        browse_error_message = st.session_state.get("browse_error_message")
+        if browse_error_message:
+            st.warning(
+                "Native Browse did not complete. "
+                f"You can still paste a path or use the built-in file browser below.\n\nDetails: {browse_error_message}"
+            )
+
         if sys.platform != "darwin":
-            st.caption("Linux containers do not support the native Browse dialog. Use the container browser below or enter a mounted path manually.")
-            with st.expander("Container File Browser", expanded=False):
-                selected_path = render_container_file_browser(st)
-                if selected_path is not None:
-                    st.session_state.selected_input_path = str(selected_path)
-                    st.rerun()
+            st.caption("Linux containers do not support the native Browse dialog. Enter a mounted path manually.")
 
         input_path = Path(input_path_str) if input_path_str else None
         output_dir_default = default_output_dir(input_path)
@@ -800,7 +775,6 @@ def main() -> None:
 
     elif st.session_state.state == "processing":
         progress_bar = st.progress(0, text="Preparing...")
-        status = st.empty()
         try:
             input_path = Path(st.session_state.input_path)
             output_dir = Path(st.session_state.output_dir)
@@ -824,7 +798,6 @@ def main() -> None:
                 "appearance_thresh": st.session_state.appearance_thresh,
             }
 
-            status.write("Loading models and preparing pipeline...")
             annotator.preprocess(
                 input_path=input_path,
                 output_dir=output_dir,

@@ -209,6 +209,7 @@ __marimo__/
 mysample/
 build/
 dist/
+releases/
 .DS_Store
 test.ipynb
 *.pt

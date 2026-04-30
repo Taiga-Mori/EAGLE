@@ -29,6 +29,11 @@ EAGLE is an annotation assistance tool, not guaranteed ground truth. You must re
   <img src="assets/three.gif" alt="EAGLE example output: three people" width="31%" />
 </p>
 
+### GUI Example
+<p align="center">
+  <img src="assets/GUI.png" alt="EAGLE GUI example" width="90%" />
+</p>
+
 ### What The Current System Does
 For each input image or video, the current pipeline can:
 
@@ -58,6 +63,11 @@ For person detections, EAGLE also uses pose keypoints to assign gaze to body par
 This project is licensed under `AGPL-3.0-or-later`.
 See [LICENSE](/Users/taigamori/Works/EAGLE/LICENSE) for the repository license text.
 
+### Download
+Prebuilt application bundles are available from GitHub Releases:
+
+- https://github.com/Taiga-Mori/EAGLE/releases
+
 ### Setup
 Create a virtual environment and install dependencies:
 
@@ -66,6 +76,8 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
+
+Recommended Python version: `3.10`
 
 ### Launching The App
 Recommended:
@@ -81,6 +93,28 @@ You can also run Streamlit directly:
 ```bash
 venv/bin/streamlit run app.py
 ```
+
+### Building A Distributable App
+PyInstaller spec files are included for macOS and Windows.
+
+macOS:
+
+```bash
+source venv/bin/activate
+pip install pyinstaller
+pyinstaller mac.spec
+```
+
+Windows:
+
+```bash
+venv\Scripts\activate
+pip install pyinstaller
+pyinstaller win.spec
+```
+
+Build outputs are created under `dist/`.
+On first run, the packaged app may still download model weights into `~/.EAGLE/`.
 
 ### First Run And Model Download
 On first use, EAGLE may download and cache:
@@ -354,6 +388,11 @@ EAGLE はアノテーション補助ツールであり、正解ラベルを保�
 - コアの処理自体は [`eagle/`](/Users/taigamori/Works/EAGLE/eagle) 以下の通常の Python コードです。
 - FFmpeg バイナリは macOS / Windows 用を同梱しています。
 - モデルファイルは `~/.EAGLE/` にキャッシュされます。
+
+### ダウンロード
+ビルド済みアプリは GitHub Releases から取得できます。
+
+- https://github.com/Taiga-Mori/EAGLE/releases
 
 ### セットアップ
 
