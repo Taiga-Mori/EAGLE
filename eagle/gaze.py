@@ -440,18 +440,22 @@ class FaceGazeEstimator:
         if not capture.isOpened():
             raise FileNotFoundError(f"Could not open video: {context.media_path}")
 
-        expected_steps = max(1, context.total_frames)
+        face_frame_set = set(context.gaze_frame_idx)
+        expected_steps = max(1, len(context.gaze_frame_idx))
         update_interval = max(1, expected_steps // 200)
+        face_step = 0
         try:
             for frame_idx in range(context.total_frames):
                 ret, frame = capture.read()
                 if not ret:
                     break
+                if frame_idx not in face_frame_set:
+                    continue
 
                 frame_objects = object_df[object_df["frame_idx"] == frame_idx].to_dict(orient="records")
                 face_map = self.detect_faces_for_frame(frame, frame_objects, det_thresh)
                 face_maps_by_frame[frame_idx] = face_map
-                face_step = frame_idx + 1
+                face_step += 1
                 if face_step == expected_steps or face_step % update_interval == 0:
                     self._update_progress(progress_bar, face_step, expected_steps, "Detecting faces...")
         finally:
