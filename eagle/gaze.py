@@ -356,13 +356,17 @@ class FaceGazeEstimator:
             raise FileNotFoundError(f"Could not open video: {context.media_path}")
 
         estimates_by_frame: dict[int, dict[str, dict[str, float | str]]] = {}
-        expected_steps = max(1, context.total_frames)
+        offscreen_frame_set = set(context.gaze_frame_idx)
+        expected_steps = max(1, len(context.gaze_frame_idx))
         update_interval = max(1, expected_steps // 200)
+        offscreen_step = 0
         try:
             for frame_idx in range(context.total_frames):
                 ret, frame = capture.read()
                 if not ret:
                     break
+                if frame_idx not in offscreen_frame_set:
+                    continue
                 estimates = self.detect_offscreen_directions(
                     frame,
                     face_maps_by_frame.get(frame_idx, {}),
@@ -372,7 +376,7 @@ class FaceGazeEstimator:
                 )
                 if estimates:
                     estimates_by_frame[frame_idx] = estimates
-                offscreen_step = frame_idx + 1
+                offscreen_step += 1
                 if offscreen_step == expected_steps or offscreen_step % update_interval == 0:
                     self._update_progress(
                         progress_bar,
