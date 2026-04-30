@@ -1,0 +1,9 @@
+{
+  "gaze_point_method": "peak_region_centroid",
+  "gaze_smoothing_window": 5,
+  "gaze_stride": 1,
+  "det_thresh": 0.5,
+  "media_path": "/Users/taigamori/Works/EAGLE/sample/home.mp4",
+  "media_mtime_ns": 1777365135609017985,
+  "objects_mtime_ns": 1777537702485027101
+}

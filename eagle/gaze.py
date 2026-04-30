@@ -249,7 +249,7 @@ class FaceGazeEstimator:
                     person_frame, face, gaze, det_thresh, heatmap_alpha
                 )
                 cv2.imwrite(str(self._person_heatmap_frame_path(context, track_id, 0)), person_frame)
-        self._update_progress(progress_bar, 1, 1, "Detecting face & gaze...")
+        self._update_progress(progress_bar, 1, 1, "Estimating gaze...")
         return {0: gaze_map}
 
     def _estimate_video(
@@ -417,6 +417,8 @@ class FaceGazeEstimator:
         if not capture.isOpened():
             raise FileNotFoundError(f"Could not open video: {context.media_path}")
 
+        expected_steps = max(1, context.total_frames)
+        update_interval = max(1, expected_steps // 200)
         try:
             for frame_idx in range(context.total_frames):
                 ret, frame = capture.read()
@@ -426,6 +428,9 @@ class FaceGazeEstimator:
                 frame_objects = object_df[object_df["frame_idx"] == frame_idx].to_dict(orient="records")
                 face_map = self.detect_faces_for_frame(frame, frame_objects, det_thresh)
                 face_maps_by_frame[frame_idx] = face_map
+                face_step = frame_idx + 1
+                if face_step == expected_steps or face_step % update_interval == 0:
+                    self._update_progress(progress_bar, face_step, expected_steps, "Detecting faces...")
         finally:
             capture.release()
 
@@ -461,7 +466,7 @@ class FaceGazeEstimator:
                     gaze_point_method,
                 )
                 gaze_step += 1
-                self._update_progress(progress_bar, gaze_step, expected_steps, "Detecting face & gaze...")
+                self._update_progress(progress_bar, gaze_step, expected_steps, "Estimating gaze...")
         finally:
             capture.release()
 
