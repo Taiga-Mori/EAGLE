@@ -1,0 +1,9 @@
+{
+  "face_detection_backend": "mediapipe",
+  "face_smoothing_window": 5,
+  "gaze_stride": 1,
+  "det_thresh": 0.5,
+  "media_path": "/Users/taigamori/Works/EAGLE/sample/book.mp4",
+  "media_mtime_ns": 1777365481467474151,
+  "objects_mtime_ns": 1777611989302545581
+}

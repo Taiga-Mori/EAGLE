@@ -33,6 +33,7 @@ class PathManager:
             app_dir=app_dir,
             yolo_path=app_dir / "yolo26x.pt",
             yolo_pose_path=app_dir / "yolo26x-pose.pt",
+            mediapipe_face_detector_path=app_dir / "blaze_face_short_range.tflite",
             mobile_gaze_path=app_dir / "mobileone_s0.pt",
             torch_home=torch_home,
             torch_hub_dir=torch_hub_dir,

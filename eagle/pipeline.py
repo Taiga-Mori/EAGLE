@@ -7,7 +7,7 @@ import yaml
 
 from .annotate import FrameAnnotator
 from .config import ConfigManager, DeviceManager
-from .constants import COCO_OBJECT_CLASSES
+from .constants import COCO_OBJECT_CLASSES, DEFAULT_OFFSCREEN_DIRECTION_BACKEND, DEFAULT_YOLO_OBJECT_MODEL
 from .exporters import AnnotationExporter
 from .gaze import FaceGazeEstimator
 from .models import ModelManager
@@ -49,14 +49,18 @@ class EAGLE:
         object_target_fps: float | None = None,
         gaze_target_fps: float | None = None,
         det_thresh: float = 0.5,
+        yolo_object_model: str = DEFAULT_YOLO_OBJECT_MODEL,
         updates: dict[str, Any] | None = None,
         device: str | None = None,
         visualization_mode: str = "both",
         heatmap_alpha: float = 0.35,
+        face_detection_backend: str = "mediapipe",
+        offscreen_direction_backend: str = DEFAULT_OFFSCREEN_DIRECTION_BACKEND,
         gaze_point_method: str = "peak_region_centroid",
         gaze_target_radius: int = 15,
         person_part_distance_scale: float = 0.10,
         object_smoothing_window: int = 5,
+        face_smoothing_window: int = 5,
         gaze_smoothing_window: int = 5,
         selected_object_classes: list[str] | None = None,
         reuse_cached_objects: bool = True,
@@ -72,13 +76,17 @@ class EAGLE:
             gaze_target_fps=gaze_target_fps,
             det_thresh=det_thresh,
             device=resolved_device,
+            yolo_object_model=yolo_object_model,
             updates=updates,
             visualization_mode=visualization_mode,
             heatmap_alpha=heatmap_alpha,
+            face_detection_backend=face_detection_backend,
+            offscreen_direction_backend=offscreen_direction_backend,
             gaze_point_method=gaze_point_method,
             gaze_target_radius=gaze_target_radius,
             person_part_distance_scale=person_part_distance_scale,
             object_smoothing_window=object_smoothing_window,
+            face_smoothing_window=face_smoothing_window,
             gaze_smoothing_window=gaze_smoothing_window,
             selected_object_classes=selected_object_classes,
             reuse_cached_objects=reuse_cached_objects,
@@ -88,7 +96,12 @@ class EAGLE:
         )
         self.config_manager.prepare_tracker_config(self.config.tracker_updates)
         self.context = self.config_manager.build_media_context(self.config)
-        self.model_manager.load(self.config.device)
+        self.model_manager.load(
+            self.config.device,
+            self.config.face_detection_backend,
+            self.config.offscreen_direction_backend,
+            self.config.yolo_object_model,
+        )
 
     def update_botsort_yaml(self, updates: dict[str, Any]) -> None:
         config = self._require_config()
@@ -111,6 +124,7 @@ class EAGLE:
         return self.object_tracker.detect(
             context=context,
             device=config.device,
+            yolo_object_model=config.yolo_object_model,
             det_thresh=config.det_thresh,
             smoothing_window=config.object_smoothing_window,
             selected_object_classes=config.selected_object_classes,
@@ -126,9 +140,12 @@ class EAGLE:
             det_thresh=config.det_thresh,
             visualization_mode=config.visualization_mode,
             heatmap_alpha=config.heatmap_alpha,
+            face_detection_backend=config.face_detection_backend,
+            offscreen_direction_backend=config.offscreen_direction_backend,
             gaze_point_method=config.gaze_point_method,
             gaze_target_radius=config.gaze_target_radius,
             person_part_distance_scale=config.person_part_distance_scale,
+            face_smoothing_window=config.face_smoothing_window,
             gaze_smoothing_window=config.gaze_smoothing_window,
             selected_object_classes=config.selected_object_classes,
             reuse_cached_gaze=config.reuse_cached_gaze,
@@ -202,6 +219,8 @@ class EAGLE:
         if int(meta.get("media_mtime_ns", -1)) != context.media_path.stat().st_mtime_ns:
             return None
         if abs(float(meta.get("det_thresh", -1.0)) - float(config.det_thresh)) > 1e-9:
+            return None
+        if str(meta.get("yolo_object_model", "")) != str(config.yolo_object_model):
             return None
         if int(meta.get("object_stride", -1)) != int(context.object_stride):
             return None

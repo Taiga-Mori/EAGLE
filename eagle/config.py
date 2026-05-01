@@ -5,7 +5,17 @@ from typing import Any
 import cv2
 import yaml
 
-from .constants import COCO_OBJECT_CLASSES, GAZE_POINT_METHODS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, VISUALIZATION_MODES
+from .constants import (
+    COCO_OBJECT_CLASSES,
+    DEFAULT_YOLO_OBJECT_MODEL,
+    FACE_DETECTION_BACKENDS,
+    GAZE_POINT_METHODS,
+    IMAGE_EXTENSIONS,
+    OFFSCREEN_DIRECTION_BACKENDS,
+    VIDEO_EXTENSIONS,
+    VISUALIZATION_MODES,
+    YOLO_OBJECT_MODELS,
+)
 from .types import AppPaths, MediaContext, PipelineConfig
 
 
@@ -52,13 +62,17 @@ class ConfigManager:
         gaze_target_fps: float | None,
         det_thresh: float,
         device: str,
+        yolo_object_model: str,
         updates: dict[str, Any] | None,
         visualization_mode: str,
         heatmap_alpha: float,
+        face_detection_backend: str,
+        offscreen_direction_backend: str,
         gaze_point_method: str,
         gaze_target_radius: int,
         person_part_distance_scale: float,
         object_smoothing_window: int,
+        face_smoothing_window: int,
         gaze_smoothing_window: int,
         selected_object_classes: list[str] | None,
         reuse_cached_objects: bool,
@@ -68,6 +82,12 @@ class ConfigManager:
     ) -> PipelineConfig:
         if visualization_mode not in VISUALIZATION_MODES:
             raise ValueError(f"visualization_mode must be one of {sorted(VISUALIZATION_MODES)}")
+        if face_detection_backend not in FACE_DETECTION_BACKENDS:
+            raise ValueError(f"face_detection_backend must be one of {sorted(FACE_DETECTION_BACKENDS)}")
+        if offscreen_direction_backend not in OFFSCREEN_DIRECTION_BACKENDS:
+            raise ValueError(f"offscreen_direction_backend must be one of {sorted(OFFSCREEN_DIRECTION_BACKENDS)}")
+        if yolo_object_model not in YOLO_OBJECT_MODELS:
+            raise ValueError(f"yolo_object_model must be one of {sorted(YOLO_OBJECT_MODELS)}")
         if not 0.0 <= heatmap_alpha <= 1.0:
             raise ValueError("heatmap_alpha must be between 0.0 and 1.0")
         if gaze_point_method not in GAZE_POINT_METHODS:
@@ -78,6 +98,8 @@ class ConfigManager:
             raise ValueError("person_part_distance_scale must be greater than 0")
         if object_smoothing_window < 1:
             raise ValueError("object_smoothing_window must be at least 1")
+        if face_smoothing_window < 1:
+            raise ValueError("face_smoothing_window must be at least 1")
         if gaze_smoothing_window < 1:
             raise ValueError("gaze_smoothing_window must be at least 1")
         normalized_selected_classes = self.normalize_selected_object_classes(selected_object_classes)
@@ -89,14 +111,18 @@ class ConfigManager:
             gaze_target_fps=0.0 if gaze_target_fps is None else float(gaze_target_fps),
             det_thresh=float(det_thresh),
             device=device,
+            yolo_object_model=yolo_object_model or DEFAULT_YOLO_OBJECT_MODEL,
             tracker_updates=dict(updates or {}),
             media_type=self.detect_media_type(Path(input_path)),
             visualization_mode=visualization_mode,
             heatmap_alpha=float(heatmap_alpha),
+            face_detection_backend=face_detection_backend,
+            offscreen_direction_backend=offscreen_direction_backend,
             gaze_point_method=gaze_point_method,
             gaze_target_radius=int(gaze_target_radius),
             person_part_distance_scale=float(person_part_distance_scale),
             object_smoothing_window=int(object_smoothing_window),
+            face_smoothing_window=int(face_smoothing_window),
             gaze_smoothing_window=int(gaze_smoothing_window),
             selected_object_classes=normalized_selected_classes,
             reuse_cached_objects=bool(reuse_cached_objects),
@@ -196,6 +222,8 @@ class ConfigManager:
             temp_dir=temp_dir,
             objects_path=config.output_dir / "objects.csv",
             objects_meta_path=config.output_dir / ".objects_meta.json",
+            faces_path=config.output_dir / "faces.csv",
+            faces_meta_path=config.output_dir / ".faces_meta.json",
             gaze_path=config.output_dir / "gaze.csv",
             gaze_heatmaps_path=config.output_dir / "gaze_heatmaps.npz",
             gaze_meta_path=config.output_dir / ".gaze_meta.json",

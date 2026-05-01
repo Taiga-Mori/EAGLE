@@ -14,7 +14,14 @@ import cv2
 import yaml
 
 from eagle import EAGLE
-from eagle.constants import COCO_OBJECT_CLASSES
+from eagle.constants import (
+    COCO_OBJECT_CLASSES,
+    DEFAULT_OFFSCREEN_DIRECTION_BACKEND,
+    DEFAULT_YOLO_OBJECT_MODEL,
+    FACE_DETECTION_BACKENDS,
+    OFFSCREEN_DIRECTION_BACKENDS,
+    YOLO_OBJECT_MODELS,
+)
 
 
 APP_PATH = Path(__file__).resolve()
@@ -127,6 +134,7 @@ def get_object_cache_mismatches(
     input_path: Path | None,
     media_type: str | None,
     det_thresh: float,
+    yolo_object_model: str,
     object_frame_interval: int,
     object_smoothing_window: int,
     tracker_config: dict,
@@ -149,6 +157,8 @@ def get_object_cache_mismatches(
     expected_stride = 1 if media_type != "video" else int(object_frame_interval)
     if abs(float(meta.get("det_thresh", -1.0)) - float(det_thresh)) > 1e-9:
         reasons.append("detection threshold is different")
+    if str(meta.get("yolo_object_model", "")) != str(yolo_object_model):
+        reasons.append("YOLO object model is different")
     if int(meta.get("object_stride", -1)) != expected_stride:
         reasons.append("object frame interval is different")
     if int(meta.get("object_smoothing_window", -1)) != int(object_smoothing_window):
@@ -169,28 +179,46 @@ def get_gaze_cache_mismatches(
     input_path: Path | None,
     media_type: str | None,
     det_thresh: float,
+    face_detection_backend: str,
+    offscreen_direction_backend: str,
     gaze_frame_interval: int,
+    face_smoothing_window: int,
     gaze_smoothing_window: int,
 ) -> list[str]:
-    meta = load_json_file(output_dir / ".gaze_meta.json")
+    face_meta = load_json_file(output_dir / ".faces_meta.json")
+    gaze_meta = load_json_file(output_dir / ".gaze_meta.json")
+    faces_path = output_dir / "faces.csv"
     gaze_path = output_dir / "gaze.csv"
     heatmap_path = output_dir / "gaze_heatmaps.npz"
-    if meta is None or not gaze_path.exists() or not heatmap_path.exists():
+    if face_meta is None or gaze_meta is None or not faces_path.exists() or not gaze_path.exists() or not heatmap_path.exists():
         return []
 
     reasons: list[str] = []
     if input_path is not None:
-        if meta.get("media_path") != str(input_path.resolve()):
+        if face_meta.get("media_path") != str(input_path.resolve()) or gaze_meta.get("media_path") != str(input_path.resolve()):
             reasons.append("input file is different")
-        elif int(meta.get("media_mtime_ns", -1)) != input_path.stat().st_mtime_ns:
+        elif (
+            int(face_meta.get("media_mtime_ns", -1)) != input_path.stat().st_mtime_ns
+            or int(gaze_meta.get("media_mtime_ns", -1)) != input_path.stat().st_mtime_ns
+        ):
             reasons.append("input file timestamp is different")
     expected_stride = 1 if media_type != "video" else int(gaze_frame_interval)
-    if abs(float(meta.get("det_thresh", -1.0)) - float(det_thresh)) > 1e-9:
+    if abs(float(face_meta.get("det_thresh", -1.0)) - float(det_thresh)) > 1e-9:
         reasons.append("detection threshold is different")
-    if int(meta.get("gaze_stride", -1)) != expected_stride:
+    if abs(float(gaze_meta.get("det_thresh", -1.0)) - float(det_thresh)) > 1e-9:
+        reasons.append("detection threshold is different")
+    if str(face_meta.get("face_detection_backend", "")) != str(face_detection_backend):
+        reasons.append("face detection backend is different")
+    if str(gaze_meta.get("offscreen_direction_backend", "")) != str(offscreen_direction_backend):
+        reasons.append("off-screen direction backend is different")
+    if int(face_meta.get("gaze_stride", -1)) != expected_stride or int(gaze_meta.get("gaze_stride", -1)) != expected_stride:
         reasons.append("gaze frame interval is different")
-    if int(meta.get("gaze_smoothing_window", -1)) != int(gaze_smoothing_window):
+    if int(face_meta.get("face_smoothing_window", -1)) != int(face_smoothing_window):
+        reasons.append("face smoothing window is different")
+    if int(gaze_meta.get("gaze_smoothing_window", -1)) != int(gaze_smoothing_window):
         reasons.append("gaze smoothing window is different")
+    if int(gaze_meta.get("faces_mtime_ns", -1)) != faces_path.stat().st_mtime_ns:
+        reasons.append("faces.csv timestamp is different")
     return reasons
 
 
@@ -495,6 +523,39 @@ def main() -> None:
                     index=["both", "point", "heatmap"].index(st.session_state.get("visualization_mode", "both")),
                 )
 
+            face_detection_options = ["mediapipe", "retinaface"]
+            saved_face_detection_backend = st.session_state.get("face_detection_backend", "mediapipe")
+            if saved_face_detection_backend not in FACE_DETECTION_BACKENDS:
+                saved_face_detection_backend = "mediapipe"
+            face_detection_backend = st.selectbox(
+                "Face detection backend",
+                options=face_detection_options,
+                index=face_detection_options.index(saved_face_detection_backend),
+            )
+            offscreen_direction_options = ["mobileone"]
+            saved_offscreen_direction_backend = st.session_state.get(
+                "offscreen_direction_backend",
+                DEFAULT_OFFSCREEN_DIRECTION_BACKEND,
+            )
+            if saved_offscreen_direction_backend not in OFFSCREEN_DIRECTION_BACKENDS:
+                saved_offscreen_direction_backend = DEFAULT_OFFSCREEN_DIRECTION_BACKEND
+            offscreen_direction_backend = st.selectbox(
+                "Off-screen direction backend",
+                options=offscreen_direction_options,
+                index=offscreen_direction_options.index(saved_offscreen_direction_backend),
+                help="Currently only MobileOne is implemented.",
+            )
+            yolo_object_options = list(YOLO_OBJECT_MODELS)
+            saved_yolo_object_model = st.session_state.get("yolo_object_model", DEFAULT_YOLO_OBJECT_MODEL)
+            if saved_yolo_object_model not in YOLO_OBJECT_MODELS:
+                saved_yolo_object_model = DEFAULT_YOLO_OBJECT_MODEL
+            yolo_object_model = st.selectbox(
+                "YOLO object model",
+                options=yolo_object_options,
+                index=yolo_object_options.index(saved_yolo_object_model),
+                help="Only the selected YOLO object weights are kept in ~/.EAGLE/.",
+            )
+
             heatmap_alpha = float(
                 st.slider(
                     "Heatmap alpha",
@@ -572,6 +633,14 @@ def main() -> None:
                     min_value=1,
                     step=1,
                     value=int(st.session_state.get("object_smoothing_window", 5)),
+                )
+            )
+            face_smoothing_window = int(
+                st.number_input(
+                    "Face smoothing window",
+                    min_value=1,
+                    step=1,
+                    value=int(st.session_state.get("face_smoothing_window", 5)),
                 )
             )
             gaze_smoothing_window = int(
@@ -695,6 +764,7 @@ def main() -> None:
                 input_path,
                 media_type,
                 det_thresh,
+                yolo_object_model,
                 object_frame_interval,
                 object_smoothing_window,
                 tracker_snapshot,
@@ -709,7 +779,10 @@ def main() -> None:
                 input_path,
                 media_type,
                 det_thresh,
+                face_detection_backend,
+                offscreen_direction_backend,
                 gaze_frame_interval,
+                face_smoothing_window,
                 gaze_smoothing_window,
             )
             if reuse_cached_gaze
@@ -746,7 +819,10 @@ def main() -> None:
         st.session_state.output_name = output_dir.name
         st.session_state.det_thresh = det_thresh
         st.session_state.device = device
+        st.session_state.yolo_object_model = yolo_object_model
         st.session_state.visualization_mode = visualization_mode
+        st.session_state.face_detection_backend = face_detection_backend
+        st.session_state.offscreen_direction_backend = offscreen_direction_backend
         st.session_state.heatmap_alpha = heatmap_alpha
         st.session_state.gaze_target_radius = gaze_target_radius
         st.session_state.person_part_distance_scale = person_part_distance_scale
@@ -756,6 +832,7 @@ def main() -> None:
         st.session_state.force_reuse_cached_gaze = force_reuse_cached_gaze
         st.session_state.selected_object_classes = selected_object_classes
         st.session_state.object_smoothing_window = object_smoothing_window
+        st.session_state.face_smoothing_window = face_smoothing_window
         st.session_state.gaze_smoothing_window = gaze_smoothing_window
         st.session_state.object_frame_interval = object_frame_interval
         st.session_state.gaze_frame_interval = gaze_frame_interval
@@ -804,13 +881,17 @@ def main() -> None:
                 object_target_fps=object_target_fps,
                 gaze_target_fps=gaze_target_fps,
                 det_thresh=st.session_state.det_thresh,
+                yolo_object_model=st.session_state.yolo_object_model,
                 updates=tracker_updates,
                 device=st.session_state.device,
                 visualization_mode=st.session_state.visualization_mode,
                 heatmap_alpha=st.session_state.heatmap_alpha,
+                face_detection_backend=st.session_state.face_detection_backend,
+                offscreen_direction_backend=st.session_state.offscreen_direction_backend,
                 gaze_target_radius=st.session_state.gaze_target_radius,
                 person_part_distance_scale=st.session_state.person_part_distance_scale,
                 object_smoothing_window=st.session_state.object_smoothing_window,
+                face_smoothing_window=st.session_state.face_smoothing_window,
                 gaze_smoothing_window=st.session_state.gaze_smoothing_window,
                 selected_object_classes=st.session_state.selected_object_classes,
                 reuse_cached_objects=st.session_state.reuse_cached_objects,
@@ -840,6 +921,7 @@ def main() -> None:
 
         if context is not None:
             st.write(f"Objects CSV: `{context.objects_path}`")
+            st.write(f"Faces CSV: `{context.faces_path}`")
             st.write(f"Gaze CSV: `{context.gaze_path}`")
             st.write(f"Annotation CSV: `{context.annotation_path}`")
 

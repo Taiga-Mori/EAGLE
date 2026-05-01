@@ -144,8 +144,9 @@ class AnnotationExporter:
         selected_object_classes: list[str],
     ) -> pd.DataFrame:
         gaze_df = pd.read_csv(context.gaze_path)
+        face_df = pd.read_csv(context.faces_path)
         object_df = pd.read_csv(context.objects_path)
-        if gaze_df.empty or object_df.empty:
+        if gaze_df.empty or face_df.empty or object_df.empty:
             empty_df = pd.DataFrame(columns=ANNOTATION_COLUMNS)
             empty_df.to_csv(context.annotation_path, index=False)
             return empty_df
@@ -155,11 +156,17 @@ class AnnotationExporter:
             axis=1,
         )
         object_df["area"] = (object_df["x2"] - object_df["x1"]) * (object_df["y2"] - object_df["y1"])
-        face_df = gaze_df[gaze_df["face_detected"] == True].copy()
+        face_df = face_df[face_df["face_detected"] == True].copy()
         face_df["face_area"] = (face_df["face_x2"] - face_df["face_x1"]) * (face_df["face_y2"] - face_df["face_y1"])
 
         target_rows = []
-        valid_gaze_df = gaze_df[gaze_df["face_detected"] == True].copy()
+        face_keys = set(zip(face_df["frame_idx"].astype(int), face_df["track_id"].astype(str)))
+        valid_gaze_rows = []
+        for _, gaze_row in gaze_df.iterrows():
+            key = (int(gaze_row["frame_idx"]), str(gaze_row["track_id"]))
+            if key in face_keys:
+                valid_gaze_rows.append(gaze_row)
+        valid_gaze_df = pd.DataFrame(valid_gaze_rows)
         for _, gaze_row in valid_gaze_df.iterrows():
             target_rows.append(
                 {

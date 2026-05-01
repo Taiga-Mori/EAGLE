@@ -3,7 +3,8 @@
   "gaze_smoothing_window": 5,
   "gaze_stride": 1,
   "det_thresh": 0.5,
-  "media_path": "/Users/taigamori/Downloads/book.mp4",
+  "offscreen_direction_backend": "mobileone",
+  "media_path": "/Users/taigamori/Works/EAGLE/sample/book.mp4",
   "media_mtime_ns": 1777365481467474151,
-  "objects_mtime_ns": 1777366826246739950
+  "faces_mtime_ns": 1777612073175781181
 }

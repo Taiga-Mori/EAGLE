@@ -2,11 +2,16 @@ import os
 import logging
 import shutil
 import ssl
+import sys
 import warnings
+from contextlib import contextmanager
+from pathlib import Path
 from urllib.request import urlopen
 
 os.environ.setdefault("YOLO_VERBOSE", "False")
 os.environ.setdefault("NO_ALBUMENTATIONS_UPDATE", "1")
+os.environ.setdefault("GLOG_minloglevel", "2")
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 warnings.filterwarnings("ignore", message="Error fetching version info.*", module="albumentations.*")
 
 import torch
@@ -21,7 +26,32 @@ except Exception:
     ULTRALYTICS_LOGGER = None
 
 from .mobile_gaze import mobileone_s0_gaze
+from .constants import DEFAULT_OFFSCREEN_DIRECTION_BACKEND, DEFAULT_YOLO_OBJECT_MODEL, YOLO_OBJECT_MODELS
 from .types import AppPaths
+
+MEDIAPIPE_FACE_DETECTOR_URL = (
+    "https://storage.googleapis.com/mediapipe-models/face_detector/"
+    "blaze_face_short_range/float16/1/blaze_face_short_range.tflite"
+)
+
+
+@contextmanager
+def _suppress_native_stderr():
+    """Temporarily silence native libraries that write directly to stderr."""
+    saved_stderr_fd = None
+    try:
+        sys.stderr.flush()
+        stderr_fd = sys.stderr.fileno()
+        saved_stderr_fd = os.dup(stderr_fd)
+        with open(os.devnull, "w") as devnull:
+            os.dup2(devnull.fileno(), stderr_fd)
+            yield
+    except Exception:
+        raise
+    finally:
+        if saved_stderr_fd is not None:
+            os.dup2(saved_stderr_fd, stderr_fd)
+            os.close(saved_stderr_fd)
 
 
 class ModelManager:
@@ -32,15 +62,24 @@ class ModelManager:
         self.yolo: YOLO | None = None
         self.yolo_pose: YOLO | None = None
         self.retinaface = None
+        self.mediapipe_face_detector = None
+        self.mediapipe_face_detector_api: str | None = None
         self.gazelle = None
         self.gazelle_transform = None
         self.mobile_gaze = None
         self.mobile_gaze_transform = None
         self.loaded_device: str | None = None
+        self.loaded_yolo_object_model: str | None = None
         self._configure_download_environment()
 
     def _configure_download_environment(self) -> None:
         os.environ.setdefault("TORCH_HOME", str(self.paths.torch_home))
+        cache_dir = self.paths.app_dir / "cache"
+        matplotlib_cache_dir = cache_dir / "matplotlib"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        matplotlib_cache_dir.mkdir(parents=True, exist_ok=True)
+        os.environ.setdefault("XDG_CACHE_HOME", str(cache_dir))
+        os.environ.setdefault("MPLCONFIGDIR", str(matplotlib_cache_dir))
         if ULTRALYTICS_LOGGER is not None:
             ULTRALYTICS_LOGGER.setLevel(logging.ERROR)
         self._ensure_torch_attention_compat()
@@ -92,12 +131,30 @@ class ModelManager:
 
         F.scaled_dot_product_attention = _scaled_dot_product_attention
 
-    def ensure_yolo_weights(self) -> None:
+    def yolo_object_path(self, model_name: str) -> Path:
+        return self.paths.app_dir / f"{model_name}.pt"
+
+    def ensure_yolo_weights(self, model_name: str) -> None:
+        if model_name not in YOLO_OBJECT_MODELS:
+            raise ValueError(f"Unsupported YOLO object model '{model_name}'.")
+        self._remove_unselected_yolo_object_weights(model_name)
         self._ensure_download(
-            self.paths.yolo_path,
-            "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt",
-            "YOLO weights",
+            self.yolo_object_path(model_name),
+            YOLO_OBJECT_MODELS[model_name],
+            f"YOLO object weights ({model_name})",
         )
+
+    def _remove_unselected_yolo_object_weights(self, selected_model_name: str) -> None:
+        selected_path = self.yolo_object_path(selected_model_name)
+        for model_name in YOLO_OBJECT_MODELS:
+            candidate = self.yolo_object_path(model_name)
+            if candidate == selected_path or not candidate.exists():
+                continue
+            try:
+                candidate.unlink()
+                print(f"Removed unused YOLO object weights: {candidate}", flush=True)
+            except Exception as exc:
+                raise RuntimeError(f"Failed to remove unused YOLO object weights: {candidate}\nOriginal error: {exc}") from exc
 
     def ensure_yolo_pose_weights(self) -> None:
         self._ensure_download(
@@ -111,6 +168,13 @@ class ModelManager:
             self.paths.mobile_gaze_path,
             "https://github.com/yakhyo/gaze-estimation/releases/download/weights/mobileone_s0.pt",
             "MobileGaze weights",
+        )
+
+    def ensure_mediapipe_face_detector_weights(self) -> None:
+        self._ensure_download(
+            self.paths.mediapipe_face_detector_path,
+            MEDIAPIPE_FACE_DETECTOR_URL,
+            "MediaPipe face detector model",
         )
 
     def _ensure_download(self, destination, url: str, label: str) -> None:
@@ -127,7 +191,47 @@ class ModelManager:
                 f"Original error: {exc}"
             ) from exc
 
-    def load(self, device: str) -> None:
+    def _load_mediapipe_face_detector(self) -> None:
+        try:
+            import mediapipe as mp
+
+            if hasattr(mp, "solutions"):
+                with _suppress_native_stderr():
+                    self.mediapipe_face_detector = mp.solutions.face_detection.FaceDetection(
+                        model_selection=1,
+                        min_detection_confidence=0.0,
+                    )
+                self.mediapipe_face_detector_api = "solutions"
+                return
+
+            self.ensure_mediapipe_face_detector_weights()
+            from mediapipe.tasks import python as mp_python
+            from mediapipe.tasks.python import vision as mp_vision
+
+            options = mp_vision.FaceDetectorOptions(
+                base_options=mp_python.BaseOptions(
+                    model_asset_path=str(self.paths.mediapipe_face_detector_path),
+                ),
+                running_mode=mp_vision.RunningMode.IMAGE,
+                min_detection_confidence=0.0,
+            )
+            with _suppress_native_stderr():
+                self.mediapipe_face_detector = mp_vision.FaceDetector.create_from_options(options)
+            self.mediapipe_face_detector_api = "tasks"
+        except Exception as exc:
+            raise RuntimeError(
+                "Failed to initialize MediaPipe face detection.\n"
+                "Install mediapipe or select RetinaFace as the face detection backend.\n"
+                f"Original error: {exc}"
+            ) from exc
+
+    def load(
+        self,
+        device: str,
+        face_detection_backend: str = "mediapipe",
+        offscreen_direction_backend: str = DEFAULT_OFFSCREEN_DIRECTION_BACKEND,
+        yolo_object_model: str = DEFAULT_YOLO_OBJECT_MODEL,
+    ) -> None:
         if device.startswith("cuda:"):
             cuda_device = torch.device(device)
             if cuda_device.index is None or cuda_device.index >= torch.cuda.device_count():
@@ -137,14 +241,18 @@ class ModelManager:
                 )
             torch.cuda.set_device(cuda_device)
             print(f"Using CUDA device {device}: {torch.cuda.get_device_name(cuda_device.index)}", flush=True)
-        self.ensure_yolo_weights()
+        self.ensure_yolo_weights(yolo_object_model)
         self.ensure_yolo_pose_weights()
-        self.ensure_mobile_gaze_weights()
-        if self.yolo is None:
-            self.yolo = YOLO(self.paths.yolo_path)
+        if offscreen_direction_backend == "mobileone":
+            self.ensure_mobile_gaze_weights()
+        if self.yolo is None or self.loaded_yolo_object_model != yolo_object_model:
+            self.yolo = YOLO(self.yolo_object_path(yolo_object_model))
+            self.loaded_yolo_object_model = yolo_object_model
         if self.yolo_pose is None:
             self.yolo_pose = YOLO(self.paths.yolo_pose_path)
-        if self.retinaface is None or self.loaded_device != device:
+        if face_detection_backend == "mediapipe" and self.mediapipe_face_detector is None:
+            self._load_mediapipe_face_detector()
+        if face_detection_backend == "retinaface" and (self.retinaface is None or self.loaded_device != device):
             try:
                 self.retinaface = get_model("resnet50_2020-07-20", max_size=2048, device=device)
                 self.retinaface.eval()
@@ -173,7 +281,9 @@ class ModelManager:
                     "Please make sure this machine is connected to the internet and try again.\n"
                     f"Original error: {exc}"
                 ) from exc
-        if self.mobile_gaze is None or self.mobile_gaze_transform is None or self.loaded_device != device:
+        if offscreen_direction_backend == "mobileone" and (
+            self.mobile_gaze is None or self.mobile_gaze_transform is None or self.loaded_device != device
+        ):
             try:
                 model = mobileone_s0_gaze(num_classes=90)
                 state_dict = torch.load(self.paths.mobile_gaze_path, map_location=device)

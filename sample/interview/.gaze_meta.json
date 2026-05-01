@@ -1,9 +1,0 @@
-{
-  "gaze_point_method": "peak_region_centroid",
-  "gaze_smoothing_window": 5,
-  "gaze_stride": 1,
-  "det_thresh": 0.5,
-  "media_path": "/Users/taigamori/Downloads/interview.mp4",
-  "media_mtime_ns": 1777367784056770638,
-  "objects_mtime_ns": 1777368174836905305
-}

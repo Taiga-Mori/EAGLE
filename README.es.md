@@ -1,6 +1,6 @@
 # EAGLE
 <p align="center">
-  EAGLE: <strong>E</strong>nd-to-end <strong>A</strong>utomatic <strong>G</strong>aze <strong>L</strong>ab<strong>E</strong>ling tool for interaction studies
+  <strong>E</strong>nd-to-end <strong>A</strong>utomatic <strong>G</strong>aze <strong>L</strong>ab<strong>E</strong>ling tool for interaction studies
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@ EAGLE es una herramienta de apoyo para anotación de mirada, basada en Streamlit
 
 - Seguimiento de personas con YOLO pose
 - Seguimiento de objetos no humanos con YOLO detection
-- Detección de rostros con RetinaFace
+- Detección de rostros con MediaPipe por defecto, con RetinaFace también disponible
 - Estimación de mapas de calor de mirada con GAZELLE
 - Estimación de dirección fuera de pantalla con MobileOne gaze
 - Exportación CSV y exportación de imágenes/videos anotados
@@ -97,9 +97,9 @@ venv/bin/streamlit run app.py
 ## Primera ejecución y descarga de modelos
 En el primer uso, EAGLE puede descargar y guardar en caché:
 
-- `yolo26x.pt`
+- Pesos YOLO object seleccionados: uno de `yolo26n.pt`, `yolo26s.pt`, `yolo26m.pt`, `yolo26l.pt` o `yolo26x.pt`
 - `yolo26x-pose.pt`
-- Pesos preentrenados de RetinaFace
+- Pesos preentrenados de RetinaFace cuando se selecciona el backend RetinaFace
 - Archivos torch.hub de GAZELLE
 - `mobileone_s0.pt`
 
@@ -145,6 +145,12 @@ Comportamiento del directorio de salida:
 ### Inference
 - `Detection threshold`
   - Umbral compartido para filtrar objetos, filtrar rostros e interpretar gaze in/out.
+- `YOLO object model`
+  - Selecciona el YOLO26 detection model (`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l` o `yolo26x`). EAGLE conserva solo los pesos object seleccionados en `~/.EAGLE/`.
+- `Face detection backend`
+  - `mediapipe` por defecto, o `retinaface` si quieres usar RetinaFace.
+- `Off-screen direction backend`
+  - `mobileone`. Este ajuste queda preparado para futuros backends de modelos de dirección de cabeza.
 - `Visualization mode`
   - `both`, `point` o `heatmap`
 - `Heatmap alpha`
@@ -163,6 +169,8 @@ Comportamiento del directorio de salida:
 ### Temporal Settings
 - `Object smoothing window`
   - Ventana de suavizado para cajas de objetos seguidos.
+- `Face smoothing window`
+  - Ventana de suavizado para cajas de rostro interpoladas.
 - `Gaze smoothing window`
   - Ventana de suavizado para estimaciones de mirada y ángulos de dirección fuera de pantalla.
 - `Object frame interval`
@@ -191,6 +199,7 @@ La UI expone estos ajustes de tracker desde [`config/botsort.yaml`](config/botso
 EAGLE escribe archivos de metadatos de caché y los revisa antes de reutilizar resultados:
 
 - `objects.csv` con `.objects_meta.json`
+- `faces.csv` con `.faces_meta.json`
 - `gaze.csv` con `gaze_heatmaps.npz` y `.gaze_meta.json`
 
 La reutilización de object cache depende de:
@@ -198,6 +207,7 @@ La reutilización de object cache depende de:
 - Ruta del archivo de entrada
 - Timestamp del archivo de entrada
 - Detection threshold
+- YOLO object model
 - Object frame interval
 - Object smoothing window
 - Clases de objetos seleccionadas
@@ -209,9 +219,12 @@ La reutilización de gaze cache depende de:
 - Ruta del archivo de entrada
 - Timestamp del archivo de entrada
 - Detection threshold
+- Face detection backend
+- Off-screen direction backend
 - Gaze frame interval
+- Face smoothing window
 - Gaze smoothing window
-- Timestamp de `objects.csv`
+- Timestamp de `faces.csv`
 
 Si la app detecta una diferencia, muestra una advertencia y ofrece un checkbox `Force reuse`.
 
@@ -222,8 +235,12 @@ Las salidas actuales pueden incluir:
   - Resultados suavizados de seguimiento de objetos/personas
 - `.objects_meta.json`
   - Metadatos usados para validar la reutilización de object cache
+- `faces.csv`
+  - Cajas de detección de rostro asignadas a tracks de persona
+- `.faces_meta.json`
+  - Metadatos usados para validar la reutilización de face cache
 - `gaze.csv`
-  - Detecciones de rostro, valores raw gaze, puntos de mirada procesados y campos de dirección fuera de pantalla
+  - Valores raw gaze, puntos de mirada procesados y campos de dirección fuera de pantalla
 - `gaze_heatmaps.npz`
   - Mapas de calor dense de mirada en caché
 - `.gaze_meta.json`
@@ -257,9 +274,6 @@ Columnas de `gaze.csv`:
 
 - `frame_idx`
 - `track_id`
-- `face_detected`
-- `face_conf`
-- `face_x1`, `face_y1`, `face_x2`, `face_y2`
 - `raw_gaze_detected`
 - `raw_inout`
 - `raw_x_gaze`, `raw_y_gaze`
@@ -269,6 +283,14 @@ Columnas de `gaze.csv`:
 - `offscreen_direction`
 - `offscreen_yaw`
 - `offscreen_pitch`
+
+Columnas de `faces.csv`:
+
+- `frame_idx`
+- `track_id`
+- `face_detected`
+- `face_conf`
+- `face_x1`, `face_y1`, `face_x2`, `face_y2`
 
 Columnas de `annotation.csv`:
 
@@ -321,6 +343,8 @@ Este proyecto está licenciado bajo `AGPL-3.0-or-later`. Consulta [LICENSE](LICE
   - https://docs.ultralytics.com/
 - BoT-SORT
   - https://github.com/NirAharon/BoT-SORT
+- MediaPipe
+  - https://developers.google.com/mediapipe
 - RetinaFace
   - https://github.com/serengil/retinaface
 - GAZELLE

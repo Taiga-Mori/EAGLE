@@ -17,13 +17,17 @@ if __name__ == "__main__":
         object_target_fps=15,
         gaze_target_fps=15,
         det_thresh=0.5,
+        yolo_object_model="yolo26x",
         device="cpu",
         visualization_mode="both",
         heatmap_alpha=0.35,
+        face_detection_backend="mediapipe",
+        offscreen_direction_backend="mobileone",
         gaze_point_method="peak_region_centroid",
         gaze_target_radius=15,
         person_part_distance_scale=0.10,
         object_smoothing_window=5,
+        face_smoothing_window=5,
         gaze_smoothing_window=5,
         selected_object_classes=["person"],
         reuse_cached_gaze=False,
@@ -43,6 +47,7 @@ if __name__ == "__main__":
     results = eagle.run_all(progress_bar=progress)
 
     print("Objects CSV:", eagle.context.objects_path)
+    print("Faces CSV:", eagle.context.faces_path)
     print("Gaze CSV:", eagle.context.gaze_path)
     print("Annotation CSV:", eagle.context.annotation_path)
     print("Visualization Output:", results["media_output_paths"])

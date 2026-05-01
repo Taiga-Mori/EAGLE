@@ -1,8 +1,9 @@
 {
   "raw_detection_cache": true,
-  "media_path": "/Users/taigamori/Downloads/book.mp4",
+  "media_path": "/Users/taigamori/Works/EAGLE/sample/book.mp4",
   "media_mtime_ns": 1777365481467474151,
   "det_thresh": 0.5,
+  "yolo_object_model": "yolo26x",
   "object_stride": 1,
   "object_smoothing_window": 5,
   "person_detection_source": "pose",

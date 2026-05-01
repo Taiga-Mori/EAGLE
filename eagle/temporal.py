@@ -158,6 +158,7 @@ class GazeTemporalProcessor:
         frame_indices: list[int],
         raw_face_maps_by_frame: dict[int, dict[int, FaceDetection]],
         object_df: pd.DataFrame,
+        smoothing_window: int = 1,
     ) -> dict[int, dict[int, FaceDetection]]:
         dense_face_maps_by_frame: dict[int, dict[int, FaceDetection]] = {frame_idx: {} for frame_idx in frame_indices}
         person_df = object_df[object_df["cls"] == "person"].copy()
@@ -181,6 +182,8 @@ class GazeTemporalProcessor:
                 continue
 
             dense_faces = self._interpolate_face_track(track_id, track_frames, sparse_faces)
+            if smoothing_window > 1:
+                dense_faces = self._smooth_face_track(dense_faces, smoothing_window)
             for frame_idx, face in dense_faces.items():
                 dense_face_maps_by_frame.setdefault(frame_idx, {})[track_id] = face
 
@@ -303,6 +306,26 @@ class GazeTemporalProcessor:
             )
 
         return dense_series
+
+    def _smooth_face_track(self, dense_series: dict[int, FaceDetection], window: int) -> dict[int, FaceDetection]:
+        ordered_frames = sorted(dense_series)
+        half_window = window // 2
+        smoothed_series: dict[int, FaceDetection] = {}
+
+        for position, frame_idx in enumerate(ordered_frames):
+            left = max(0, position - half_window)
+            right = min(len(ordered_frames), position + half_window + 1)
+            window_faces = [dense_series[idx] for idx in ordered_frames[left:right]]
+            smoothed_series[frame_idx] = FaceDetection(
+                track_id=dense_series[frame_idx].track_id,
+                conf=float(np.mean([face.conf for face in window_faces])),
+                x1=int(round(np.mean([face.x1 for face in window_faces]))),
+                y1=int(round(np.mean([face.y1 for face in window_faces]))),
+                x2=int(round(np.mean([face.x2 for face in window_faces]))),
+                y2=int(round(np.mean([face.y2 for face in window_faces]))),
+            )
+
+        return smoothed_series
 
     def _smooth_track(self, dense_series: dict[int, GazePoint], window: int, point_method: str) -> dict[int, GazePoint]:
         ordered_frames = sorted(dense_series)

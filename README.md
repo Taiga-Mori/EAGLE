@@ -1,6 +1,6 @@
 # EAGLE
 <p align="center">
-  EAGLE: <strong>E</strong>nd-to-end <strong>A</strong>utomatic <strong>G</strong>aze <strong>L</strong>ab<strong>E</strong>ling tool for interaction studies
+  <strong>E</strong>nd-to-end <strong>A</strong>utomatic <strong>G</strong>aze <strong>L</strong>ab<strong>E</strong>ling tool for interaction studies
 </p>
 
 
@@ -20,7 +20,7 @@ EAGLE is a Streamlit-based gaze annotation support tool for image and video anal
 
 - Person tracking with YOLO pose
 - Non-person object tracking with YOLO detection
-- Face detection with RetinaFace
+- Face detection with MediaPipe by default, with RetinaFace also available
 - Gaze heatmap estimation with GAZELLE
 - Off-screen direction estimation with MobileOne gaze
 - CSV export plus annotated image/video export
@@ -98,9 +98,9 @@ venv/bin/streamlit run app.py
 ## First Run And Model Download
 On first use, EAGLE may download and cache:
 
-- `yolo26x.pt`
+- Selected YOLO object weights: one of `yolo26n.pt`, `yolo26s.pt`, `yolo26m.pt`, `yolo26l.pt`, or `yolo26x.pt`
 - `yolo26x-pose.pt`
-- RetinaFace pretrained weights
+- RetinaFace pretrained weights when the RetinaFace backend is selected
 - GAZELLE torch.hub files
 - `mobileone_s0.pt`
 
@@ -146,6 +146,12 @@ Output directory behavior:
 ### Inference
 - `Detection threshold`
   - Shared threshold used for object filtering, face filtering, and gaze in/out interpretation.
+- `YOLO object model`
+  - Selects the YOLO26 detection model (`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, or `yolo26x`). EAGLE keeps only the selected object weights in `~/.EAGLE/`.
+- `Face detection backend`
+  - `mediapipe` by default, or `retinaface` when you want to use RetinaFace.
+- `Off-screen direction backend`
+  - `mobileone`. This setting is prepared for future head-direction model backends.
 - `Visualization mode`
   - `both`, `point`, or `heatmap`
 - `Heatmap alpha`
@@ -164,6 +170,8 @@ Output directory behavior:
 ### Temporal Settings
 - `Object smoothing window`
   - Smoothing window for tracked object boxes.
+- `Face smoothing window`
+  - Smoothing window for interpolated face boxes.
 - `Gaze smoothing window`
   - Smoothing window for gaze estimates and off-screen direction angles.
 - `Object frame interval`
@@ -193,6 +201,7 @@ The UI exposes these tracker settings from [`config/botsort.yaml`](config/botsor
 EAGLE writes cache metadata files and checks them before reuse:
 
 - `objects.csv` with `.objects_meta.json`
+- `faces.csv` with `.faces_meta.json`
 - `gaze.csv` with `gaze_heatmaps.npz` and `.gaze_meta.json`
 
 Object cache reuse depends on:
@@ -200,6 +209,7 @@ Object cache reuse depends on:
 - Input file path
 - Input file timestamp
 - Detection threshold
+- YOLO object model
 - Object frame interval
 - Object smoothing window
 - Selected object classes
@@ -211,9 +221,12 @@ Gaze cache reuse depends on:
 - Input file path
 - Input file timestamp
 - Detection threshold
+- Face detection backend
+- Off-screen direction backend
 - Gaze frame interval
+- Face smoothing window
 - Gaze smoothing window
-- `objects.csv` timestamp
+- `faces.csv` timestamp
 
 If the app detects a mismatch, it warns you and offers a `Force reuse` checkbox.
 
@@ -224,8 +237,12 @@ Current outputs can include:
   - Smoothed object/person tracking results
 - `.objects_meta.json`
   - Metadata used to validate object cache reuse
+- `faces.csv`
+  - Face detection boxes assigned to person tracks
+- `.faces_meta.json`
+  - Metadata used to validate face cache reuse
 - `gaze.csv`
-  - Face detections, raw gaze values, processed gaze points, and off-screen direction fields
+  - Raw gaze values, processed gaze points, and off-screen direction fields
 - `gaze_heatmaps.npz`
   - Cached dense gaze heatmaps
 - `.gaze_meta.json`
@@ -259,9 +276,6 @@ Temporary folders such as `temp/` and `heatmaps/` are removed after export.
 
 - `frame_idx`
 - `track_id`
-- `face_detected`
-- `face_conf`
-- `face_x1`, `face_y1`, `face_x2`, `face_y2`
 - `raw_gaze_detected`
 - `raw_inout`
 - `raw_x_gaze`, `raw_y_gaze`
@@ -271,6 +285,14 @@ Temporary folders such as `temp/` and `heatmaps/` are removed after export.
 - `offscreen_direction`
 - `offscreen_yaw`
 - `offscreen_pitch`
+
+`faces.csv` columns:
+
+- `frame_idx`
+- `track_id`
+- `face_detected`
+- `face_conf`
+- `face_x1`, `face_y1`, `face_x2`, `face_y2`
 
 `annotation.csv` columns:
 
@@ -324,6 +346,8 @@ See [LICENSE](LICENSE) for the repository license text.
   - https://docs.ultralytics.com/
 - BoT-SORT
   - https://github.com/NirAharon/BoT-SORT
+- MediaPipe
+  - https://developers.google.com/mediapipe
 - RetinaFace
   - https://github.com/serengil/retinaface
 - GAZELLE

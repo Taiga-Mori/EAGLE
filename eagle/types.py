@@ -13,6 +13,7 @@ class AppPaths:
     app_dir: Path
     yolo_path: Path
     yolo_pose_path: Path
+    mediapipe_face_detector_path: Path
     mobile_gaze_path: Path
     torch_home: Path
     torch_hub_dir: Path
@@ -31,14 +32,18 @@ class PipelineConfig:
     gaze_target_fps: float
     det_thresh: float
     device: str
+    yolo_object_model: str
     tracker_updates: dict[str, Any]
     media_type: str
     visualization_mode: str
     heatmap_alpha: float
+    face_detection_backend: str
+    offscreen_direction_backend: str
     gaze_point_method: str
     gaze_target_radius: int
     person_part_distance_scale: float
     object_smoothing_window: int
+    face_smoothing_window: int
     gaze_smoothing_window: int
     selected_object_classes: list[str]
     reuse_cached_objects: bool
@@ -57,6 +62,8 @@ class MediaContext:
     temp_dir: Path
     objects_path: Path
     objects_meta_path: Path
+    faces_path: Path
+    faces_meta_path: Path
     gaze_path: Path
     gaze_heatmaps_path: Path
     gaze_meta_path: Path
@@ -104,12 +111,6 @@ class GazeRecord:
 
     frame_idx: int
     track_id: str
-    face_detected: bool
-    face_conf: float | None
-    face_x1: int | None
-    face_y1: int | None
-    face_x2: int | None
-    face_y2: int | None
     raw_gaze_detected: bool
     raw_inout: float | None
     raw_x_gaze: int | None

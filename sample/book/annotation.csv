@@ -2,8 +2,8 @@ tier,start_time,end_time,gaze
 person 1_Gaze,0.0,0.9166666666666666,book 3
 person 1_Gaze,0.9166666666666666,1.0,book 15
 person 1_Gaze,1.0,4.791666666666667,book 3
-person 1_Gaze,4.791666666666667,4.958333333333333,other
-person 1_Gaze,4.958333333333333,5.0,person 1's upper body
+person 1_Gaze,4.791666666666667,4.916666666666667,other
+person 1_Gaze,4.916666666666667,5.0,person 1's upper body
 person 1_Gaze,5.0,5.375,front
 person 1_Gaze,5.375,5.833333333333333,book 20
 person 2_Gaze,0.0,0.9166666666666666,book 3

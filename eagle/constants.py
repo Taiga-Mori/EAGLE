@@ -95,7 +95,7 @@ COCO_OBJECT_CLASSES = [
     "toothbrush",
 ]
 
-GAZE_COLUMNS = [
+FACE_COLUMNS = [
     "frame_idx",
     "track_id",
     "face_detected",
@@ -104,6 +104,11 @@ GAZE_COLUMNS = [
     "face_y1",
     "face_x2",
     "face_y2",
+]
+
+GAZE_COLUMNS = [
+    "frame_idx",
+    "track_id",
     "raw_gaze_detected",
     "raw_inout",
     "raw_x_gaze",
@@ -123,3 +128,14 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".wmv", ".webm"}
 VISUALIZATION_MODES = {"point", "heatmap", "both"}
 GAZE_POINT_METHODS = {"argmax", "center_of_mass", "peak_centroid", "peak_region_centroid", "soft_argmax"}
+FACE_DETECTION_BACKENDS = {"mediapipe", "retinaface"}
+YOLO_OBJECT_MODELS = {
+    "yolo26n": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt",
+    "yolo26s": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s.pt",
+    "yolo26m": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26m.pt",
+    "yolo26l": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l.pt",
+    "yolo26x": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt",
+}
+DEFAULT_YOLO_OBJECT_MODEL = "yolo26x"
+OFFSCREEN_DIRECTION_BACKENDS = {"mobileone"}
+DEFAULT_OFFSCREEN_DIRECTION_BACKEND = "mobileone"

@@ -10,7 +10,7 @@ from PIL import Image
 
 from .annotate import FrameAnnotator
 from .body_parts import build_person_part_shapes, resolve_person_part_label
-from .constants import GAZE_COLUMNS
+from .constants import FACE_COLUMNS, GAZE_COLUMNS
 from .models import ModelManager
 from .progress import update_progress
 from .temporal import GazePointResolver, GazeTemporalProcessor
@@ -60,9 +60,12 @@ class FaceGazeEstimator:
         det_thresh: float,
         visualization_mode: str,
         heatmap_alpha: float,
+        face_detection_backend: str,
+        offscreen_direction_backend: str,
         gaze_point_method: str,
         gaze_target_radius: int,
         person_part_distance_scale: float,
+        face_smoothing_window: int,
         gaze_smoothing_window: int,
         selected_object_classes: list[str],
         reuse_cached_gaze: bool = False,
@@ -73,7 +76,9 @@ class FaceGazeEstimator:
         object_df = pd.read_csv(context.objects_path)
         self._update_progress(progress_bar, 1, 1, "Loading objects.csv...")
         if object_df.empty:
+            empty_faces_df = pd.DataFrame(columns=FACE_COLUMNS)
             empty_df = pd.DataFrame(columns=GAZE_COLUMNS)
+            empty_faces_df.to_csv(context.faces_path, index=False)
             empty_df.to_csv(context.gaze_path, index=False)
             return empty_df
 
@@ -84,9 +89,12 @@ class FaceGazeEstimator:
                 det_thresh,
                 visualization_mode,
                 heatmap_alpha,
+                face_detection_backend,
+                offscreen_direction_backend,
                 gaze_target_radius,
                 person_part_distance_scale,
                 gaze_point_method,
+                face_smoothing_window,
                 gaze_smoothing_window,
                 selected_object_classes,
                 force_reuse_cached_gaze,
@@ -95,6 +103,7 @@ class FaceGazeEstimator:
             if cached_result is not None:
                 return cached_result
 
+        face_records: list[dict] = []
         records: list[dict] = []
         if context.media_type == "image":
             gaze_maps = self._estimate_image(
@@ -104,9 +113,12 @@ class FaceGazeEstimator:
                 det_thresh,
                 visualization_mode,
                 heatmap_alpha,
+                face_detection_backend,
+                offscreen_direction_backend,
                 gaze_point_method,
                 gaze_target_radius,
                 person_part_distance_scale,
+                face_records,
                 records,
                 selected_object_classes,
                 progress_bar,
@@ -119,14 +131,30 @@ class FaceGazeEstimator:
                 det_thresh,
                 visualization_mode,
                 heatmap_alpha,
+                face_detection_backend,
+                offscreen_direction_backend,
                 gaze_point_method,
                 gaze_target_radius,
                 person_part_distance_scale,
+                face_smoothing_window,
                 gaze_smoothing_window,
+                face_records,
                 records,
                 selected_object_classes,
                 progress_bar,
             )
+
+        self._update_progress(progress_bar, 0, 1, "Saving face outputs...")
+        face_df = pd.DataFrame(face_records, columns=FACE_COLUMNS)
+        face_df.to_csv(context.faces_path, index=False)
+        self._save_faces_meta(
+            context,
+            object_df,
+            face_detection_backend,
+            face_smoothing_window,
+            det_thresh,
+        )
+        self._update_progress(progress_bar, 1, 1, "Saving face outputs...")
 
         self._update_progress(progress_bar, 0, 1, "Saving gaze outputs...")
         gaze_df = pd.DataFrame(records, columns=GAZE_COLUMNS)
@@ -135,7 +163,10 @@ class FaceGazeEstimator:
             context,
             gaze_maps,
             object_df,
+            face_detection_backend,
+            offscreen_direction_backend,
             gaze_point_method,
+            face_smoothing_window,
             gaze_smoothing_window,
             det_thresh,
         )
@@ -150,9 +181,12 @@ class FaceGazeEstimator:
         det_thresh: float,
         visualization_mode: str,
         heatmap_alpha: float,
+        face_detection_backend: str,
+        offscreen_direction_backend: str,
         gaze_point_method: str,
         gaze_target_radius: int,
         person_part_distance_scale: float,
+        face_records: list[dict],
         records: list[dict],
         selected_object_classes: list[str],
         progress_bar=None,
@@ -165,9 +199,17 @@ class FaceGazeEstimator:
         heatmap_enabled = self._heatmap_enabled(visualization_mode)
         frame_objects = object_df.to_dict(orient="records")
         visible_objects = self._filter_visible_objects(frame_objects, selected_object_classes)
-        face_map = self.detect_faces_for_frame(frame, frame_objects, det_thresh)
+        face_map = self.detect_faces_for_frame(frame, frame_objects, det_thresh, face_detection_backend)
+        face_records.extend(self._face_records_from_maps([0], {0: face_map}, object_df))
         gaze_map = self.detect_gazes(frame, face_map, device, gaze_point_method)
-        offscreen_direction_map = self.detect_offscreen_directions(frame, face_map, gaze_map, det_thresh, device)
+        offscreen_direction_map = self.detect_offscreen_directions(
+            frame,
+            face_map,
+            gaze_map,
+            det_thresh,
+            device,
+            offscreen_direction_backend,
+        )
 
         if point_enabled:
             annotated_frame = frame.copy()
@@ -265,10 +307,14 @@ class FaceGazeEstimator:
         det_thresh: float,
         visualization_mode: str,
         heatmap_alpha: float,
+        face_detection_backend: str,
+        offscreen_direction_backend: str,
         gaze_point_method: str,
         gaze_target_radius: int,
         person_part_distance_scale: float,
+        face_smoothing_window: int,
         gaze_smoothing_window: int,
+        face_records: list[dict],
         records: list[dict],
         selected_object_classes: list[str],
         progress_bar=None,
@@ -281,6 +327,7 @@ class FaceGazeEstimator:
             context,
             object_df,
             det_thresh,
+            face_detection_backend,
             raw_face_maps_by_frame,
             progress_bar,
         )
@@ -289,8 +336,16 @@ class FaceGazeEstimator:
             frame_indices=list(range(context.total_frames)),
             raw_face_maps_by_frame=raw_face_maps_by_frame,
             object_df=object_df,
+            smoothing_window=face_smoothing_window,
         )
         self._update_progress(progress_bar, 1, 1, "Interpolating faces...")
+        face_records.extend(
+            self._face_records_from_maps(
+                list(range(context.total_frames)),
+                face_maps_by_frame,
+                object_df,
+            )
+        )
         self._collect_sparse_gazes(
             context,
             device,
@@ -314,6 +369,7 @@ class FaceGazeEstimator:
             dense_gaze_by_frame,
             det_thresh,
             device,
+            offscreen_direction_backend,
             progress_bar,
         )
         self._update_progress(progress_bar, 0, 1, "Smoothing off-screen directions...")
@@ -336,6 +392,7 @@ class FaceGazeEstimator:
             records,
             selected_object_classes,
             None,
+            offscreen_direction_backend,
             offscreen_directions_by_frame,
             offscreen_angles_by_frame,
             progress_bar,
@@ -349,6 +406,7 @@ class FaceGazeEstimator:
         dense_gaze_by_frame: dict[int, dict[int, GazePoint]],
         det_thresh: float,
         device: str,
+        offscreen_direction_backend: str,
         progress_bar=None,
     ) -> dict[int, dict[str, dict[str, float | str]]]:
         capture = cv2.VideoCapture(str(context.media_path))
@@ -373,6 +431,7 @@ class FaceGazeEstimator:
                     dense_gaze_by_frame.get(frame_idx, {}),
                     det_thresh,
                     device,
+                    offscreen_direction_backend,
                 )
                 if estimates:
                     estimates_by_frame[frame_idx] = estimates
@@ -437,6 +496,7 @@ class FaceGazeEstimator:
         context: MediaContext,
         object_df: pd.DataFrame,
         det_thresh: float,
+        face_detection_backend: str,
         face_maps_by_frame: dict[int, dict[int, FaceDetection]],
         progress_bar=None,
     ) -> None:
@@ -457,7 +517,7 @@ class FaceGazeEstimator:
                     continue
 
                 frame_objects = object_df[object_df["frame_idx"] == frame_idx].to_dict(orient="records")
-                face_map = self.detect_faces_for_frame(frame, frame_objects, det_thresh)
+                face_map = self.detect_faces_for_frame(frame, frame_objects, det_thresh, face_detection_backend)
                 face_maps_by_frame[frame_idx] = face_map
                 face_step += 1
                 if face_step == expected_steps or face_step % update_interval == 0:
@@ -516,6 +576,7 @@ class FaceGazeEstimator:
         records: list[dict],
         selected_object_classes: list[str],
         device: str | None = None,
+        offscreen_direction_backend: str = "mobileone",
         offscreen_directions_by_frame: dict[int, dict[str, str]] | None = None,
         offscreen_angles_by_frame: dict[int, dict[str, tuple[float, float]]] | None = None,
         progress_bar=None,
@@ -555,6 +616,7 @@ class FaceGazeEstimator:
                         gaze_map,
                         det_thresh,
                         device,
+                        offscreen_direction_backend,
                     )
                 else:
                     offscreen_direction_map = {}
@@ -669,9 +731,12 @@ class FaceGazeEstimator:
         det_thresh: float,
         visualization_mode: str,
         heatmap_alpha: float,
+        face_detection_backend: str,
+        offscreen_direction_backend: str,
         gaze_target_radius: int,
         person_part_distance_scale: float,
         gaze_point_method: str,
+        face_smoothing_window: int,
         gaze_smoothing_window: int,
         selected_object_classes: list[str],
         force_reuse_cached_gaze: bool,
@@ -681,27 +746,49 @@ class FaceGazeEstimator:
             return None
         try:
             gaze_df = pd.read_csv(context.gaze_path)
+            face_df = self._load_face_df_for_cached_gaze(context, gaze_df)
+            if face_df is None:
+                return None
             with context.gaze_meta_path.open("r", encoding="utf-8") as file:
-                meta = json.load(file)
+                gaze_meta = json.load(file)
+            face_meta = self._load_json_file(context.faces_meta_path)
         except Exception:
             return None
         if gaze_df.empty:
             return None
         if not force_reuse_cached_gaze:
-            if meta.get("media_path") != str(context.media_path.resolve()):
+            if face_meta is None:
                 return None
-            if int(meta.get("media_mtime_ns", -1)) != context.media_path.stat().st_mtime_ns:
+            if gaze_meta.get("media_path") != str(context.media_path.resolve()):
                 return None
-            if int(meta.get("gaze_smoothing_window", -1)) != int(gaze_smoothing_window):
+            if face_meta.get("media_path") != str(context.media_path.resolve()):
                 return None
-            if int(meta.get("gaze_stride", -1)) != int(context.gaze_stride):
+            if int(gaze_meta.get("media_mtime_ns", -1)) != context.media_path.stat().st_mtime_ns:
                 return None
-            if abs(float(meta.get("det_thresh", -1.0)) - float(det_thresh)) > 1e-9:
+            if int(face_meta.get("media_mtime_ns", -1)) != context.media_path.stat().st_mtime_ns:
                 return None
-            if int(meta.get("objects_mtime_ns", -1)) != context.objects_path.stat().st_mtime_ns:
+            if int(face_meta.get("face_smoothing_window", -1)) != int(face_smoothing_window):
+                return None
+            if int(gaze_meta.get("gaze_smoothing_window", -1)) != int(gaze_smoothing_window):
+                return None
+            if int(face_meta.get("gaze_stride", -1)) != int(context.gaze_stride):
+                return None
+            if int(gaze_meta.get("gaze_stride", -1)) != int(context.gaze_stride):
+                return None
+            if abs(float(face_meta.get("det_thresh", -1.0)) - float(det_thresh)) > 1e-9:
+                return None
+            if abs(float(gaze_meta.get("det_thresh", -1.0)) - float(det_thresh)) > 1e-9:
+                return None
+            if str(face_meta.get("face_detection_backend", "")) != str(face_detection_backend):
+                return None
+            if str(gaze_meta.get("offscreen_direction_backend", "")) != str(offscreen_direction_backend):
+                return None
+            if int(face_meta.get("objects_mtime_ns", -1)) != context.objects_path.stat().st_mtime_ns:
+                return None
+            if int(gaze_meta.get("faces_mtime_ns", -1)) != context.faces_path.stat().st_mtime_ns:
                 return None
 
-        cached_method = str(meta.get("gaze_point_method", ""))
+        cached_method = str(gaze_meta.get("gaze_point_method", ""))
         if force_reuse_cached_gaze:
             self._notify_skip(
                 progress_bar,
@@ -724,11 +811,20 @@ class FaceGazeEstimator:
         frame_width, frame_height = self._resolve_media_size(context)
         dense_gaze_by_frame = self._load_heatmaps(context, gaze_df, frame_width, frame_height, gaze_point_method)
         gaze_df = self._rebuild_gaze_df_from_dense_heatmaps(gaze_df, dense_gaze_by_frame)
+        face_df.to_csv(context.faces_path, index=False)
+        self._save_faces_meta(
+            context,
+            object_df,
+            face_detection_backend,
+            face_smoothing_window,
+            det_thresh,
+        )
         gaze_df.to_csv(context.gaze_path, index=False)
         if context.media_type == "image":
             self._render_cached_image(
                 context,
                 object_df,
+                face_df,
                 gaze_df,
                 dense_gaze_by_frame.get(0, {}),
                 det_thresh,
@@ -742,6 +838,7 @@ class FaceGazeEstimator:
             self._render_cached_video(
                 context,
                 object_df,
+                face_df,
                 gaze_df,
                 dense_gaze_by_frame,
                 det_thresh,
@@ -758,6 +855,7 @@ class FaceGazeEstimator:
         self,
         context: MediaContext,
         object_df: pd.DataFrame,
+        face_df: pd.DataFrame,
         gaze_df: pd.DataFrame,
         gaze_map: dict[int, GazePoint],
         det_thresh: float,
@@ -775,7 +873,7 @@ class FaceGazeEstimator:
         heatmap_enabled = self._heatmap_enabled(visualization_mode)
         frame_objects = object_df.to_dict(orient="records")
         visible_objects = self._filter_visible_objects(frame_objects, selected_object_classes)
-        face_map = self._face_map_from_gaze_df(gaze_df, 0)
+        face_map = self._face_map_from_face_df(face_df, 0)
         offscreen_direction_map = self._offscreen_direction_map_from_gaze_df(gaze_df, 0)
         offscreen_angle_map = self._offscreen_angle_map_from_gaze_df(gaze_df, 0)
 
@@ -834,6 +932,7 @@ class FaceGazeEstimator:
         self,
         context: MediaContext,
         object_df: pd.DataFrame,
+        face_df: pd.DataFrame,
         gaze_df: pd.DataFrame,
         dense_gaze_by_frame: dict[int, dict[int, GazePoint]],
         det_thresh: float,
@@ -844,7 +943,7 @@ class FaceGazeEstimator:
         selected_object_classes: list[str],
         progress_bar=None,
     ) -> None:
-        face_maps_by_frame = self._face_maps_from_gaze_df(gaze_df)
+        face_maps_by_frame = self._face_maps_from_face_df(face_df)
         offscreen_directions_by_frame = self._offscreen_directions_from_gaze_df(gaze_df)
         offscreen_angles_by_frame = self._offscreen_angles_from_gaze_df(gaze_df)
         self._render_video_outputs(
@@ -861,6 +960,7 @@ class FaceGazeEstimator:
             [],
             selected_object_classes,
             None,
+            "mobileone",
             offscreen_directions_by_frame,
             offscreen_angles_by_frame,
             progress_bar,
@@ -871,7 +971,10 @@ class FaceGazeEstimator:
         context: MediaContext,
         dense_gaze_by_frame: dict[int, dict[int, GazePoint]],
         object_df: pd.DataFrame,
+        face_detection_backend: str,
+        offscreen_direction_backend: str,
         gaze_point_method: str,
+        face_smoothing_window: int,
         gaze_smoothing_window: int,
         det_thresh: float,
     ) -> None:
@@ -885,6 +988,31 @@ class FaceGazeEstimator:
                 {
                     "gaze_point_method": gaze_point_method,
                     "gaze_smoothing_window": gaze_smoothing_window,
+                    "gaze_stride": int(context.gaze_stride),
+                    "det_thresh": float(det_thresh),
+                    "offscreen_direction_backend": offscreen_direction_backend,
+                    "media_path": str(context.media_path.resolve()),
+                    "media_mtime_ns": context.media_path.stat().st_mtime_ns,
+                    "faces_mtime_ns": context.faces_path.stat().st_mtime_ns,
+                },
+                file,
+                ensure_ascii=False,
+                indent=2,
+            )
+
+    def _save_faces_meta(
+        self,
+        context: MediaContext,
+        object_df: pd.DataFrame,
+        face_detection_backend: str,
+        face_smoothing_window: int,
+        det_thresh: float,
+    ) -> None:
+        with context.faces_meta_path.open("w", encoding="utf-8") as file:
+            json.dump(
+                {
+                    "face_detection_backend": face_detection_backend,
+                    "face_smoothing_window": face_smoothing_window,
                     "gaze_stride": int(context.gaze_stride),
                     "det_thresh": float(det_thresh),
                     "media_path": str(context.media_path.resolve()),
@@ -951,7 +1079,10 @@ class FaceGazeEstimator:
             rebuilt_df.at[index, "inout"] = gaze.inout
             rebuilt_df.at[index, "x_gaze"] = gaze.x_gaze
             rebuilt_df.at[index, "y_gaze"] = gaze.y_gaze
-        return rebuilt_df
+        for column in GAZE_COLUMNS:
+            if column not in rebuilt_df.columns:
+                rebuilt_df[column] = None
+        return rebuilt_df[GAZE_COLUMNS].copy()
 
     def _resolve_media_size(self, context: MediaContext) -> tuple[int, int]:
         if context.media_type == "image":
@@ -972,10 +1103,82 @@ class FaceGazeEstimator:
         return int(frame.shape[1]), int(frame.shape[0])
 
 
-    def _face_maps_from_gaze_df(self, gaze_df: pd.DataFrame) -> dict[int, dict[int, FaceDetection]]:
+    def _load_json_file(self, path: Path) -> dict | None:
+        if not path.exists():
+            return None
+        try:
+            with path.open("r", encoding="utf-8") as file:
+                data = json.load(file)
+            return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    def _load_face_df_for_cached_gaze(self, context: MediaContext, gaze_df: pd.DataFrame) -> pd.DataFrame | None:
+        if context.faces_path.exists():
+            face_df = pd.read_csv(context.faces_path)
+            return self._normalize_face_df(face_df)
+        if all(column in gaze_df.columns for column in FACE_COLUMNS):
+            return self._normalize_face_df(gaze_df[FACE_COLUMNS].copy())
+        return None
+
+    def _normalize_face_df(self, face_df: pd.DataFrame) -> pd.DataFrame:
+        for column in FACE_COLUMNS:
+            if column not in face_df.columns:
+                face_df[column] = None
+        return face_df[FACE_COLUMNS].copy()
+
+    def _face_records_from_maps(
+        self,
+        frame_indices: list[int],
+        face_maps_by_frame: dict[int, dict[int, FaceDetection]],
+        object_df: pd.DataFrame,
+    ) -> list[dict]:
+        frame_index_set = set(int(frame_idx) for frame_idx in frame_indices)
+        person_df = object_df[object_df["cls"] == "person"].copy()
+        records: list[dict] = []
+        if person_df.empty:
+            return records
+        person_df["track_id"] = person_df["track_id"].astype(str)
+        person_df = person_df.sort_values(["frame_idx", "track_id"])
+        for _, row in person_df.iterrows():
+            frame_idx = int(row["frame_idx"])
+            if frame_idx not in frame_index_set:
+                continue
+            track_id = str(row["track_id"])
+            face = face_maps_by_frame.get(frame_idx, {}).get(track_id)
+            if face is None:
+                records.append(
+                    {
+                        "frame_idx": frame_idx,
+                        "track_id": track_id,
+                        "face_detected": False,
+                        "face_conf": None,
+                        "face_x1": None,
+                        "face_y1": None,
+                        "face_x2": None,
+                        "face_y2": None,
+                    }
+                )
+                continue
+            records.append(
+                {
+                    "frame_idx": frame_idx,
+                    "track_id": track_id,
+                    "face_detected": True,
+                    "face_conf": face.conf,
+                    "face_x1": face.x1,
+                    "face_y1": face.y1,
+                    "face_x2": face.x2,
+                    "face_y2": face.y2,
+                }
+            )
+        return records
+
+    def _face_maps_from_face_df(self, face_df: pd.DataFrame) -> dict[int, dict[int, FaceDetection]]:
         face_maps_by_frame: dict[int, dict[int, FaceDetection]] = {}
-        face_df = gaze_df[gaze_df["face_detected"] == True]
-        for _, row in face_df.iterrows():
+        normalized_face_df = self._normalize_face_df(face_df)
+        detected_face_df = normalized_face_df[normalized_face_df["face_detected"] == True]
+        for _, row in detected_face_df.iterrows():
             frame_idx = int(row["frame_idx"])
             track_id = str(row["track_id"])
             face_maps_by_frame.setdefault(frame_idx, {})[track_id] = FaceDetection(
@@ -988,8 +1191,8 @@ class FaceGazeEstimator:
             )
         return face_maps_by_frame
 
-    def _face_map_from_gaze_df(self, gaze_df: pd.DataFrame, frame_idx: int) -> dict[int, FaceDetection]:
-        return self._face_maps_from_gaze_df(gaze_df).get(frame_idx, {})
+    def _face_map_from_face_df(self, face_df: pd.DataFrame, frame_idx: int) -> dict[int, FaceDetection]:
+        return self._face_maps_from_face_df(face_df).get(frame_idx, {})
 
     def _offscreen_directions_from_gaze_df(self, gaze_df: pd.DataFrame) -> dict[int, dict[str, str]]:
         if "offscreen_direction" not in gaze_df.columns:
@@ -1029,37 +1232,138 @@ class FaceGazeEstimator:
         frame: np.ndarray,
         detections: list[dict],
         det_thresh: float,
+        face_detection_backend: str,
     ) -> dict[int, FaceDetection]:
-        assert self.models.retinaface is not None
         person_detections = [d for d in detections if d["cls"] == "person"]
         if not person_detections:
             return {}
 
-        raw_faces = self.models.retinaface.predict_jsons(frame)
-        valid_faces = [face for face in raw_faces if float(face["score"]) >= det_thresh]
-        face_map: dict[int, FaceDetection] = {}
+        valid_faces = self._detect_face_candidates(frame, det_thresh, face_detection_backend)
+        if not valid_faces:
+            return {}
 
+        scored_pairs: list[tuple[float, str, dict]] = []
         for detection in person_detections:
-            x1, y1, x2, y2 = (int(detection[key]) for key in ["x1", "y1", "x2", "y2"])
-            matching_faces = []
+            face_keypoint_center = self._face_keypoint_center(detection, frame)
+            if face_keypoint_center is None:
+                continue
+            keypoint_x, keypoint_y = face_keypoint_center
             for face in valid_faces:
                 fx1, fy1, fx2, fy2 = map(int, face["bbox"])
-                if x1 <= fx1 and y1 <= fy1 and fx2 <= x2 and fy2 <= y2:
-                    matching_faces.append(face)
-            if not matching_faces:
+                face_center_x = (fx1 + fx2) / 2.0
+                face_center_y = (fy1 + fy2) / 2.0
+                distance = float(np.hypot(keypoint_x - face_center_x, keypoint_y - face_center_y))
+                scored_pairs.append((distance, str(detection["track_id"]), face))
+
+        face_map: dict[int, FaceDetection] = {}
+        assigned_tracks: set[str] = set()
+        assigned_face_ids: set[int] = set()
+        for _, track_id, face in sorted(scored_pairs, key=lambda item: item[0]):
+            face_id = id(face)
+            if track_id in assigned_tracks or face_id in assigned_face_ids:
                 continue
-            top_face = min(matching_faces, key=lambda face: face["bbox"][1])
-            fx1, fy1, fx2, fy2 = map(int, top_face["bbox"])
-            track_id = str(detection["track_id"])
+            fx1, fy1, fx2, fy2 = map(int, face["bbox"])
             face_map[track_id] = FaceDetection(
                 track_id=track_id,
-                conf=float(top_face["score"]),
+                conf=float(face["score"]),
                 x1=fx1,
                 y1=fy1,
                 x2=fx2,
                 y2=fy2,
             )
+            assigned_tracks.add(track_id)
+            assigned_face_ids.add(face_id)
         return face_map
+
+    def _detect_face_candidates(
+        self,
+        frame: np.ndarray,
+        det_thresh: float,
+        face_detection_backend: str,
+    ) -> list[dict]:
+        if face_detection_backend == "retinaface":
+            assert self.models.retinaface is not None
+            raw_faces = self.models.retinaface.predict_jsons(frame)
+            return [face for face in raw_faces if float(face["score"]) >= det_thresh and face.get("bbox")]
+        if face_detection_backend == "mediapipe":
+            if self.models.mediapipe_face_detector is None:
+                raise RuntimeError("MediaPipe face detection is not initialized.")
+            height, width = frame.shape[:2]
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            if self.models.mediapipe_face_detector_api == "tasks":
+                import mediapipe as mp
+
+                image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+                result = self.models.mediapipe_face_detector.detect(image)
+                faces: list[dict] = []
+                for detection in result.detections or []:
+                    score = max((float(category.score) for category in detection.categories), default=0.0)
+                    if score < det_thresh:
+                        continue
+                    box = detection.bounding_box
+                    x1 = int(round(box.origin_x))
+                    y1 = int(round(box.origin_y))
+                    x2 = int(round(box.origin_x + box.width))
+                    y2 = int(round(box.origin_y + box.height))
+                    x1 = max(0, min(width - 1, x1))
+                    y1 = max(0, min(height - 1, y1))
+                    x2 = max(x1 + 1, min(width, x2))
+                    y2 = max(y1 + 1, min(height, y2))
+                    faces.append({"bbox": [x1, y1, x2, y2], "score": score})
+                return faces
+
+            result = self.models.mediapipe_face_detector.process(rgb_frame)
+            faces: list[dict] = []
+            for detection in result.detections or []:
+                score = float(detection.score[0]) if detection.score else 0.0
+                if score < det_thresh:
+                    continue
+                relative_box = detection.location_data.relative_bounding_box
+                x1 = int(round(relative_box.xmin * width))
+                y1 = int(round(relative_box.ymin * height))
+                x2 = int(round((relative_box.xmin + relative_box.width) * width))
+                y2 = int(round((relative_box.ymin + relative_box.height) * height))
+                x1 = max(0, min(width - 1, x1))
+                y1 = max(0, min(height - 1, y1))
+                x2 = max(x1 + 1, min(width, x2))
+                y2 = max(y1 + 1, min(height, y2))
+                faces.append({"bbox": [x1, y1, x2, y2], "score": score})
+            return faces
+        raise ValueError(f"Unsupported face detection backend: {face_detection_backend}")
+
+    def _face_keypoint_center(self, detection: dict, frame: np.ndarray) -> tuple[float, float] | None:
+        keypoints = self._pose_keypoints(detection)
+        height, width = frame.shape[:2]
+        points: list[tuple[float, float]] = []
+        for keypoint_index in [0, 1, 2, 3, 4]:
+            if keypoint_index >= len(keypoints):
+                continue
+            keypoint = keypoints[keypoint_index]
+            if not isinstance(keypoint, (list, tuple)) or len(keypoint) < 2:
+                continue
+            x = float(keypoint[0])
+            y = float(keypoint[1])
+            if not np.isfinite(x) or not np.isfinite(y):
+                continue
+            if x < 0 or y < 0 or x >= width or y >= height:
+                continue
+            points.append((x, y))
+        if not points:
+            return None
+        return (
+            float(np.mean([point[0] for point in points])),
+            float(np.mean([point[1] for point in points])),
+        )
+
+    def _pose_keypoints(self, detection: dict) -> list:
+        raw_keypoints = detection.get("pose_keypoints")
+        if isinstance(raw_keypoints, str):
+            try:
+                decoded = json.loads(raw_keypoints)
+                return decoded if isinstance(decoded, list) else []
+            except Exception:
+                return []
+        return raw_keypoints if isinstance(raw_keypoints, list) else []
 
     def detect_gazes(
         self,
@@ -1108,7 +1412,10 @@ class FaceGazeEstimator:
         gaze_map: dict[int, GazePoint],
         det_thresh: float,
         device: str,
+        offscreen_direction_backend: str,
     ) -> dict[str, dict[str, float | str]]:
+        if offscreen_direction_backend != "mobileone":
+            raise ValueError(f"Unsupported off-screen direction backend: {offscreen_direction_backend}")
         if not face_map or not gaze_map:
             return {}
         if self.models.mobile_gaze is None or self.models.mobile_gaze_transform is None:
@@ -1206,12 +1513,6 @@ class FaceGazeEstimator:
             return GazeRecord(
                 frame_idx=frame_idx,
                 track_id=track_id,
-                face_detected=False,
-                face_conf=None,
-                face_x1=None,
-                face_y1=None,
-                face_x2=None,
-                face_y2=None,
                 raw_gaze_detected=False,
                 raw_inout=None,
                 raw_x_gaze=None,
@@ -1227,12 +1528,6 @@ class FaceGazeEstimator:
         return GazeRecord(
             frame_idx=frame_idx,
             track_id=track_id,
-            face_detected=True,
-            face_conf=face.conf,
-            face_x1=face.x1,
-            face_y1=face.y1,
-            face_x2=face.x2,
-            face_y2=face.y2,
             raw_gaze_detected=raw_gaze is not None,
             raw_inout=None if raw_gaze is None else raw_gaze.inout,
             raw_x_gaze=None if raw_gaze is None else raw_gaze.x_gaze,
