@@ -3,6 +3,7 @@ import math
 from typing import Any
 
 import pandas as pd
+import torch
 import yaml
 
 from .constants import OBJECT_COLUMNS
@@ -169,14 +170,22 @@ class ObjectTracker:
 
     def _detect_image_persons(self, context: MediaContext, device: str, det_thresh: float) -> list[dict[str, Any]]:
         assert self.models.yolo_pose is not None
-        results = self.models.yolo_pose.predict(source=str(context.media_path), verbose=False, device=device)
+        results = self.models.yolo_pose.predict(
+            source=str(context.media_path),
+            verbose=False,
+            device=self._yolo_device(device),
+        )
         if not results:
             return []
         return self._pose_rows_from_image_result(results[0], det_thresh)
 
     def _detect_image_non_persons(self, context: MediaContext, device: str, det_thresh: float) -> list[dict[str, Any]]:
         assert self.models.yolo is not None
-        results = self.models.yolo.predict(source=str(context.media_path), verbose=False, device=device)
+        results = self.models.yolo.predict(
+            source=str(context.media_path),
+            verbose=False,
+            device=self._yolo_device(device),
+        )
         if not results:
             return []
         return self._non_person_rows_from_result(0, results[0], context, det_thresh)
@@ -189,7 +198,7 @@ class ObjectTracker:
             verbose=False,
             tracker=str(self.paths.botsort_runtime_path),
             vid_stride=context.object_stride,
-            device=device,
+            device=self._yolo_device(device),
         )
 
     def _run_object_track(self, context: MediaContext, device: str):
@@ -200,8 +209,13 @@ class ObjectTracker:
             verbose=False,
             tracker=str(self.paths.botsort_runtime_path),
             vid_stride=context.object_stride,
-            device=device,
+            device=self._yolo_device(device),
         )
+
+    def _yolo_device(self, device: str) -> str | torch.device:
+        if device.startswith("cuda:"):
+            return torch.device(device)
+        return device
 
     def _pose_rows_from_result(
         self,

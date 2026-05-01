@@ -32,7 +32,10 @@ class DeviceManager:
         self.device_options.append("cpu")
 
     def resolve(self, requested_device: str | None) -> str:
-        return requested_device or self.default_device
+        device = requested_device or self.default_device
+        if device not in self.device_options:
+            raise ValueError(f"Unsupported device '{device}'. Available devices: {', '.join(self.device_options)}")
+        return device
 
 
 class ConfigManager:

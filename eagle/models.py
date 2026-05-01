@@ -129,11 +129,14 @@ class ModelManager:
 
     def load(self, device: str) -> None:
         if device.startswith("cuda:"):
-            try:
-                torch.cuda.set_device(torch.device(device))
-            except Exception:
-                # Keep existing behavior if runtime cannot switch devices explicitly.
-                pass
+            cuda_device = torch.device(device)
+            if cuda_device.index is None or cuda_device.index >= torch.cuda.device_count():
+                raise ValueError(
+                    f"Unsupported CUDA device '{device}'. Available CUDA devices: "
+                    f"{', '.join(f'cuda:{idx}' for idx in range(torch.cuda.device_count()))}"
+                )
+            torch.cuda.set_device(cuda_device)
+            print(f"Using CUDA device {device}: {torch.cuda.get_device_name(cuda_device.index)}", flush=True)
         self.ensure_yolo_weights()
         self.ensure_yolo_pose_weights()
         self.ensure_mobile_gaze_weights()
