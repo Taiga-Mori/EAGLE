@@ -64,10 +64,6 @@ For person detections, EAGLE also uses pose keypoints to assign gaze to body par
 - Bundled FFmpeg binaries are included for macOS and Windows.
 - Model files are cached under `~/.EAGLE/`.
 
-## License
-This project is licensed under `AGPL-3.0-or-later`.
-See [LICENSE](LICENSE) for the repository license text.
-
 ## Download
 Prebuilt application bundles are available from GitHub Releases:
 
@@ -98,28 +94,6 @@ You can also run Streamlit directly:
 ```bash
 venv/bin/streamlit run app.py
 ```
-
-## Building A Distributable App
-PyInstaller spec files are included for macOS and Windows.
-
-macOS:
-
-```bash
-source venv/bin/activate
-pip install pyinstaller
-pyinstaller mac.spec
-```
-
-Windows:
-
-```bash
-venv\Scripts\activate
-pip install pyinstaller
-pyinstaller win.spec
-```
-
-Build outputs are created under `dist/`.
-On first run, the packaged app may still download model weights into `~/.EAGLE/`.
 
 ## First Run And Model Download
 On first use, EAGLE may download and cache:
@@ -340,6 +314,10 @@ python -m py_compile main.py app.py eagle/*.py
 - Use this software at your own risk.
 - EAGLE does not guarantee correctness of detections, gaze estimates, target assignments, or exported annotations.
 - Final responsibility for review and correction remains with the user.
+
+## License
+This project is licensed under `AGPL-3.0-or-later`.
+See [LICENSE](LICENSE) for the repository license text.
 
 ## Acknowledgements
 - Ultralytics YOLO
