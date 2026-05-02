@@ -1,0 +1,10 @@
+{
+  "face_detection_backend": "retinaface",
+  "face_smoothing_window": 5,
+  "face_stride": 1,
+  "det_thresh": 0.5,
+  "media_path": "/Users/taigamori/Works/EAGLE/sample/three.mp4",
+  "media_mtime_ns": 1777367442676576066,
+  "persons_mtime_ns": 1777736380765608825,
+  "objects_mtime_ns": 1777736393022631808
+}
