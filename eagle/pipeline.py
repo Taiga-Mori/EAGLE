@@ -31,6 +31,7 @@ class EAGLE:
         self.paths = PathManager().get()
         self.device_manager = DeviceManager()
         self.device_options = self.device_manager.device_options
+        self.device_warnings = self.device_manager.device_warnings
         self.config_manager = ConfigManager(self.paths)
         self.model_manager = ModelManager(self.paths)
         self.annotator = FrameAnnotator()

@@ -31,20 +31,58 @@ class DeviceManager:
         import torch
 
         self.device_options: list[str] = []
+        self.device_warnings: list[str] = []
         if torch.cuda.is_available():
             cuda_count = int(torch.cuda.device_count())
-            if cuda_count > 1:
-                self.default_device = "cuda:0"
-                self.device_options.extend([f"cuda:{idx}" for idx in range(cuda_count)])
+            usable_cuda_devices = [
+                device_idx for device_idx in range(cuda_count) if self._cuda_device_is_usable(torch, device_idx)
+            ]
+            if len(usable_cuda_devices) > 1:
+                self.default_device = f"cuda:{usable_cuda_devices[0]}"
+                self.device_options.extend([f"cuda:{idx}" for idx in usable_cuda_devices])
+            elif len(usable_cuda_devices) == 1:
+                only_device = usable_cuda_devices[0]
+                self.default_device = f"cuda:{only_device}"
+                self.device_options.append(f"cuda:{only_device}")
+            elif torch.backends.mps.is_available():
+                self.default_device = "mps"
+                self.device_options.append("mps")
             else:
-                self.default_device = "cuda:0"
-                self.device_options.append("cuda:0")
+                self.default_device = "cpu"
         elif torch.backends.mps.is_available():
             self.default_device = "mps"
             self.device_options.append("mps")
         else:
             self.default_device = "cpu"
         self.device_options.append("cpu")
+
+    def _cuda_device_is_usable(self, torch, device_idx: int) -> bool:
+        device = f"cuda:{device_idx}"
+        try:
+            with torch.cuda.device(device_idx):
+                probe = torch.ones((1,), device=device)
+                _ = probe + 1
+                torch.cuda.synchronize(device_idx)
+            return True
+        except Exception as exc:
+            try:
+                device_name = torch.cuda.get_device_name(device_idx)
+            except Exception:
+                device_name = f"CUDA device {device_idx}"
+            self.device_warnings.append(
+                f"{device} ({device_name}) is visible but unusable by the installed PyTorch CUDA build: {exc}"
+            )
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+            if device_idx == 0:
+                # Keep CUDA's error state from leaking into later CPU/MPS startup paths when possible.
+                try:
+                    torch.cuda.synchronize(device_idx)
+                except Exception:
+                    pass
+            return False
 
     def resolve(self, requested_device: str | None) -> str:
         device = requested_device or self.default_device

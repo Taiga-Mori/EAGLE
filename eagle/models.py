@@ -254,7 +254,19 @@ class ModelManager:
                     f"Unsupported CUDA device '{device}'. Available CUDA devices: "
                     f"{', '.join(f'cuda:{idx}' for idx in range(torch.cuda.device_count()))}"
                 )
-            torch.cuda.set_device(cuda_device)
+            try:
+                torch.cuda.set_device(cuda_device)
+                probe = torch.ones((1,), device=cuda_device)
+                _ = probe + 1
+                torch.cuda.synchronize(cuda_device)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"CUDA device '{device}' is visible but cannot run kernels with the installed PyTorch build.\n"
+                    "On Windows, this usually means the PyTorch CUDA wheel does not support this GPU's compute "
+                    "capability, or the NVIDIA driver/PyTorch CUDA runtime combination is incompatible.\n"
+                    "Install a PyTorch build that supports this GPU, update the NVIDIA driver, or select 'cpu'.\n"
+                    f"Original error: {exc}"
+                ) from exc
             print(f"Using CUDA device {device}: {torch.cuda.get_device_name(cuda_device.index)}", flush=True)
         if gaze_detection_backend not in GAZE_DETECTION_BACKENDS:
             raise ValueError(f"Unsupported gaze detection backend '{gaze_detection_backend}'.")

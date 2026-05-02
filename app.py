@@ -410,6 +410,8 @@ def main() -> None:
             options=annotator.device_options,
             index=annotator.device_options.index(selected_device),
         )
+        for warning in getattr(annotator, "device_warnings", []):
+            st.warning(warning)
 
         if input_path is None:
             st.info("Choose an input file to begin.")
