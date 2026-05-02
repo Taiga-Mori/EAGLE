@@ -2,6 +2,7 @@ OBJECT_COLUMNS = [
     "frame_idx",
     "cls",
     "track_id",
+    "object_detected",
     "source",
     "conf",
     "x1",
@@ -109,10 +110,6 @@ FACE_COLUMNS = [
 GAZE_COLUMNS = [
     "frame_idx",
     "track_id",
-    "raw_gaze_detected",
-    "raw_inout",
-    "raw_x_gaze",
-    "raw_y_gaze",
     "gaze_detected",
     "inout",
     "x_gaze",
@@ -129,6 +126,11 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".wmv", ".webm"}
 VISUALIZATION_MODES = {"point", "heatmap", "both"}
 GAZE_POINT_METHODS = {"argmax", "center_of_mass", "peak_centroid", "peak_region_centroid", "soft_argmax"}
 FACE_DETECTION_BACKENDS = {"mediapipe", "retinaface"}
+DEFAULT_FACE_DETECTION_BACKEND = "retinaface"
+PERSON_DETECTION_BACKENDS = {
+    "yolo26x-pose": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-pose.pt",
+}
+DEFAULT_PERSON_DETECTION_BACKEND = "yolo26x-pose"
 YOLO_OBJECT_MODELS = {
     "yolo26n": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt",
     "yolo26s": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26s.pt",
@@ -136,6 +138,9 @@ YOLO_OBJECT_MODELS = {
     "yolo26l": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26l.pt",
     "yolo26x": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x.pt",
 }
-DEFAULT_YOLO_OBJECT_MODEL = "yolo26x"
-OFFSCREEN_DIRECTION_BACKENDS = {"mobileone"}
-DEFAULT_OFFSCREEN_DIRECTION_BACKEND = "mobileone"
+OBJECT_DETECTION_BACKENDS = YOLO_OBJECT_MODELS
+DEFAULT_OBJECT_DETECTION_BACKEND = "yolo26x"
+GAZE_DETECTION_BACKENDS = {"gazelle"}
+DEFAULT_GAZE_DETECTION_BACKEND = "gazelle"
+HEAD_POSE_DETECTION_BACKENDS = {"mobileone"}
+DEFAULT_HEAD_POSE_DETECTION_BACKEND = "mobileone"

@@ -35,12 +35,17 @@ class FrameAnnotator:
         frame: np.ndarray,
         detection: dict[str, Any],
         person_part_distance_scale: float = 0.22,
+        person_part_min_conf: float = 0.0,
     ) -> np.ndarray:
         if str(detection.get("cls", "")) != "person":
             return frame
         color = self.id_to_color(str(detection["track_id"]))
         overlay = frame.copy()
-        for region in build_person_attention_regions(detection, distance_scale=person_part_distance_scale):
+        for region in build_person_attention_regions(
+            detection,
+            distance_scale=person_part_distance_scale,
+            min_conf=person_part_min_conf,
+        ):
             if region["kind"] == "point":
                 cv2.circle(
                     overlay,

@@ -1,0 +1,25 @@
+{
+  "raw_detection_cache": true,
+  "media_path": "/Users/taigamori/Works/EAGLE/sample/home.mp4",
+  "media_mtime_ns": 1777365135609017985,
+  "det_thresh": 0.5,
+  "stride": 2,
+  "smoothing_window": 5,
+  "tracker_config": {
+    "tracker_type": "botsort",
+    "track_high_thresh": 0.25,
+    "track_low_thresh": 0.1,
+    "new_track_thresh": 0.25,
+    "track_buffer": 30,
+    "match_thresh": 0.8,
+    "fuse_score": true,
+    "gmc_method": "none",
+    "proximity_thresh": 0.5,
+    "appearance_thresh": 0.8,
+    "with_reid": false,
+    "model": "auto"
+  },
+  "detection_stage": "objects",
+  "backend": "yolo26x",
+  "includes_non_person_detections": true
+}

@@ -14,22 +14,35 @@ if __name__ == "__main__":
     eagle.preprocess(
         input_path="",
         output_dir="",
+        person_target_fps=15,
         object_target_fps=15,
+        face_target_fps=15,
         gaze_target_fps=15,
-        det_thresh=0.5,
-        yolo_object_model="yolo26x",
+        head_pose_target_fps=15,
+        person_det_thresh=0.5,
+        object_det_thresh=0.5,
+        face_det_thresh=0.5,
+        gaze_det_thresh=0.5,
+        person_detection_backend="yolo26x-pose",
+        object_detection_backend="yolo26x",
+        gaze_detection_backend="gazelle",
+        head_pose_detection_backend="mobileone",
         device="cpu",
         visualization_mode="both",
         heatmap_alpha=0.35,
-        face_detection_backend="mediapipe",
-        offscreen_direction_backend="mobileone",
+        face_detection_backend="retinaface",
         gaze_point_method="peak_region_centroid",
         gaze_target_radius=15,
         person_part_distance_scale=0.10,
+        person_part_min_conf=0.0,
+        person_smoothing_window=5,
         object_smoothing_window=5,
         face_smoothing_window=5,
         gaze_smoothing_window=5,
         selected_object_classes=["person"],
+        reuse_cached_persons=True,
+        reuse_cached_objects=True,
+        reuse_cached_faces=False,
         reuse_cached_gaze=False,
     )
     eagle.update_botsort_yaml(
@@ -46,6 +59,7 @@ if __name__ == "__main__":
     print("Starting pipeline...", flush=True)
     results = eagle.run_all(progress_bar=progress)
 
+    print("Persons CSV:", eagle.context.persons_path)
     print("Objects CSV:", eagle.context.objects_path)
     print("Faces CSV:", eagle.context.faces_path)
     print("Gaze CSV:", eagle.context.gaze_path)

@@ -1,0 +1,284 @@
+frame_idx,cls,track_id,object_detected,source,conf,x1,y1,x2,y2,pose_keypoints,label
+0,apple,1,True,detect,0.9715517361958822,556,421,775,629,,apple 1
+0,dining table,3,True,detect,0.625979483127594,1,483,1363,756,,dining table 3
+1,apple,1,True,detect,0.971512645483017,556,421,775,629,,apple 1
+1,dining table,3,True,detect,0.6261211186647415,1,483,1363,757,,dining table 3
+2,apple,1,True,detect,0.9715148210525513,556,421,775,628,,apple 1
+2,dining table,3,True,detect,0.6257055878639222,1,483,1363,757,,dining table 3
+3,apple,1,True,detect,0.9714667558670044,556,421,775,628,,apple 1
+3,dining table,3,True,detect,0.6238993287086487,1,482,1363,757,,dining table 3
+4,apple,1,True,detect,0.9713793635368347,556,421,775,628,,apple 1
+4,dining table,3,True,detect,0.6216903924942017,1,482,1363,757,,dining table 3
+5,apple,1,True,detect,0.9710806012153625,555,421,774,628,,apple 1
+5,dining table,3,True,detect,0.6212399721145629,1,482,1363,757,,dining table 3
+6,apple,1,True,detect,0.9708896994590759,555,420,774,628,,apple 1
+6,dining table,3,True,detect,0.6235506892204284,1,482,1363,757,,dining table 3
+7,apple,1,True,detect,0.9706738352775574,555,420,774,628,,apple 1
+7,dining table,3,True,detect,0.6307502388954163,1,482,1363,756,,dining table 3
+8,apple,1,True,detect,0.9704468369483947,555,420,774,627,,apple 1
+8,dining table,3,True,detect,0.637500524520874,1,482,1362,756,,dining table 3
+9,apple,1,True,detect,0.9699964880943298,555,419,774,627,,apple 1
+9,dining table,3,True,detect,0.6489328861236572,1,482,1362,756,,dining table 3
+10,apple,1,True,detect,0.9698153257369995,554,418,774,627,,apple 1
+10,dining table,3,True,detect,0.6556413412094116,1,482,1362,756,,dining table 3
+11,apple,1,True,detect,0.969928252696991,554,417,773,627,,apple 1
+11,dining table,3,True,detect,0.6588325738906861,0,482,1362,756,,dining table 3
+12,apple,1,True,detect,0.9701613306999206,554,415,773,626,,apple 1
+12,dining table,3,True,detect,0.657265043258667,1,480,1362,756,,dining table 3
+13,apple,1,True,detect,0.9704929471015931,553,414,773,626,,apple 1
+13,dining table,3,True,detect,0.6569665551185608,1,479,1362,756,,dining table 3
+14,apple,1,True,detect,0.9711945176124572,553,413,773,626,,apple 1
+14,dining table,3,True,detect,0.6565948843955993,1,477,1361,756,,dining table 3
+15,apple,1,True,detect,0.9717137336730957,553,413,772,626,,apple 1
+15,dining table,3,True,detect,0.6607158422470093,1,475,1362,756,,dining table 3
+16,apple,1,True,detect,0.9718894600868225,552,413,772,626,,apple 1
+16,dining table,3,True,detect,0.6719003558158875,2,473,1362,756,,dining table 3
+17,apple,1,True,detect,0.9717795968055725,552,413,772,625,,apple 1
+17,dining table,3,True,detect,0.687859296798706,2,470,1362,756,,dining table 3
+18,apple,1,True,detect,0.9716605424880982,552,413,772,625,,apple 1
+18,dining table,3,True,detect,0.6992178559303284,2,467,1362,756,,dining table 3
+19,apple,1,True,detect,0.9715761542320251,552,413,772,625,,apple 1
+19,dining table,3,True,detect,0.7072128176689148,3,464,1362,756,,dining table 3
+20,apple,1,True,detect,0.9715297222137451,552,413,772,625,,apple 1
+20,dining table,3,True,detect,0.7129028916358948,3,461,1362,756,,dining table 3
+21,apple,1,True,detect,0.9716357827186585,552,413,772,625,,apple 1
+21,dining table,3,True,detect,0.7077277183532715,3,458,1362,756,,dining table 3
+22,apple,1,True,detect,0.9720402359962463,552,413,772,625,,apple 1
+22,dining table,3,True,detect,0.6940400958061218,2,457,1362,756,,dining table 3
+23,apple,1,True,detect,0.9725541114807129,552,413,772,624,,apple 1
+23,dining table,3,True,detect,0.6807641506195068,2,456,1362,756,,dining table 3
+24,apple,1,True,detect,0.973020339012146,552,413,772,624,,apple 1
+24,dining table,3,True,detect,0.6749104619026184,2,454,1362,756,,dining table 3
+25,apple,1,True,detect,0.973478639125824,552,412,772,624,,apple 1
+25,dining table,3,True,detect,0.6692529439926147,2,452,1362,756,,dining table 3
+26,apple,1,True,detect,0.9738462686538696,552,412,772,624,,apple 1
+26,dining table,3,True,detect,0.6699440360069275,2,450,1362,756,,dining table 3
+27,apple,1,True,detect,0.9738705396652222,552,412,772,624,,apple 1
+27,dining table,3,True,detect,0.6841243028640747,2,448,1363,756,,dining table 3
+28,apple,1,True,detect,0.9737058043479919,552,412,772,624,,apple 1
+28,dining table,3,True,detect,0.7025863051414489,2,446,1363,756,,dining table 3
+29,apple,1,True,detect,0.9735297441482544,553,413,772,624,,apple 1
+29,dining table,3,True,detect,0.7138139009475708,2,444,1362,756,,dining table 3
+30,apple,1,True,detect,0.9732721328735352,553,413,773,624,,apple 1
+30,dining table,3,True,detect,0.7246440768241882,2,443,1362,756,,dining table 3
+31,apple,1,True,detect,0.973440945148468,553,413,773,624,,apple 1
+31,dining table,3,True,detect,0.7251208662986756,2,438,1362,756,,dining table 3
+32,apple,1,True,detect,0.9735746502876281,554,413,773,624,,apple 1
+32,dining table,3,True,detect,0.7231977224349976,2,429,1362,756,,dining table 3
+33,apple,1,True,detect,0.9737290382385254,554,414,774,624,,apple 1
+33,dining table,3,True,detect,0.7122934341430665,2,422,1362,756,,dining table 3
+34,apple,1,True,detect,0.9739171981811523,555,414,774,625,,apple 1
+34,dining table,3,True,detect,0.7110663056373596,2,417,1362,756,,dining table 3
+35,apple,1,True,detect,0.974062716960907,556,415,775,625,,apple 1
+35,dining table,3,True,detect,0.7138522744178772,2,413,1362,756,,dining table 3
+36,apple,1,True,detect,0.9736338973045349,556,415,776,625,,apple 1
+36,dining table,3,True,detect,0.7207656502723694,2,413,1361,756,,dining table 3
+37,apple,1,True,detect,0.973299789428711,557,416,776,626,,apple 1
+37,dining table,3,True,detect,0.7222699761390686,2,418,1361,757,,dining table 3
+38,apple,1,True,detect,0.9728760957717896,557,417,777,627,,apple 1
+38,dining table,3,True,detect,0.7266386985778809,2,421,1361,757,,dining table 3
+39,apple,1,True,detect,0.9725125193595886,558,417,778,627,,apple 1
+39,dining table,3,True,detect,0.7203360676765442,2,423,1362,757,,dining table 3
+40,apple,1,True,detect,0.9724773526191711,559,418,778,628,,apple 1
+40,dining table,3,True,detect,0.7115609645843506,2,423,1362,757,,dining table 3
+41,apple,1,True,detect,0.9725332021713257,560,419,779,629,,apple 1
+41,dining table,3,True,detect,0.7125604152679443,2,425,1362,757,,dining table 3
+42,apple,1,True,detect,0.9724477171897888,560,420,780,630,,apple 1
+42,dining table,3,True,detect,0.7106146931648254,2,426,1362,757,,dining table 3
+43,apple,1,True,detect,0.972709846496582,561,421,781,631,,apple 1
+43,dining table,3,True,detect,0.7127024054527282,2,427,1362,756,,dining table 3
+44,apple,1,True,detect,0.9728231072425843,562,422,782,632,,apple 1
+44,dining table,3,True,detect,0.7175528407096863,2,428,1362,756,,dining table 3
+44,apple,7,True,detect,0.6698171496391296,517,392,693,550,,apple 7
+45,apple,1,True,detect,0.9726691603660583,563,422,783,632,,apple 1
+45,dining table,3,True,detect,0.7197705388069153,3,428,1362,756,,dining table 3
+46,apple,1,True,detect,0.9725287556648254,565,422,783,633,,apple 1
+46,dining table,3,True,detect,0.7128685593605042,3,429,1363,756,,dining table 3
+47,apple,1,True,detect,0.9725501298904419,566,423,785,634,,apple 1
+47,dining table,3,True,detect,0.7009472727775574,3,429,1363,756,,dining table 3
+48,apple,1,True,detect,0.9725586652755738,567,423,786,634,,apple 1
+48,dining table,3,True,detect,0.6852107763290405,4,431,1363,756,,dining table 3
+49,apple,1,True,detect,0.9729400873184204,568,423,787,635,,apple 1
+49,dining table,3,True,detect,0.6644235134124756,4,431,1363,756,,dining table 3
+50,apple,1,True,detect,0.9737653493881225,569,424,788,635,,apple 1
+50,dining table,3,True,detect,0.6538050293922424,4,433,1363,756,,dining table 3
+51,apple,1,True,detect,0.9748705387115478,571,424,790,636,,apple 1
+51,dining table,3,True,detect,0.6385881662368774,4,434,1362,756,,dining table 3
+52,apple,1,True,detect,0.9759404420852661,572,424,791,636,,apple 1
+52,dining table,3,True,detect,0.6282334327697754,4,435,1362,756,,dining table 3
+53,apple,1,True,detect,0.9765596866607666,574,425,792,637,,apple 1
+53,dining table,3,True,detect,0.6343313455581665,4,435,1363,756,,dining table 3
+54,apple,1,True,detect,0.9767167210578919,575,425,793,637,,apple 1
+54,dining table,3,True,detect,0.6457259297370911,4,436,1363,756,,dining table 3
+55,apple,1,True,detect,0.9766687989234925,576,426,794,638,,apple 1
+55,dining table,3,True,detect,0.6438366055488587,4,437,1363,756,,dining table 3
+56,apple,1,True,detect,0.976342248916626,578,426,795,638,,apple 1
+56,dining table,3,True,detect,0.6484509348869324,4,438,1363,756,,dining table 3
+57,apple,1,True,detect,0.9765944600105285,579,427,796,639,,apple 1
+57,dining table,3,True,detect,0.6559818744659424,4,438,1363,756,,dining table 3
+58,apple,1,True,detect,0.977287745475769,580,427,798,639,,apple 1
+58,dining table,3,True,detect,0.6544499397277832,4,439,1363,757,,dining table 3
+59,apple,1,True,detect,0.9782220363616944,581,428,799,640,,apple 1
+59,dining table,3,True,detect,0.6486801505088806,4,440,1363,757,,dining table 3
+60,apple,1,True,detect,0.9790496826171875,582,429,800,640,,apple 1
+60,dining table,3,True,detect,0.6487058877944947,3,441,1363,757,,dining table 3
+61,apple,1,True,detect,0.9799838304519654,583,429,801,641,,apple 1
+61,dining table,3,True,detect,0.6524619340896607,3,441,1363,757,,dining table 3
+62,apple,1,True,detect,0.9806035399436951,584,430,802,641,,apple 1
+62,dining table,3,True,detect,0.6549633622169495,3,442,1363,757,,dining table 3
+63,apple,1,True,detect,0.9810673832893372,585,430,803,641,,apple 1
+63,dining table,3,True,detect,0.6602444291114807,3,442,1363,757,,dining table 3
+64,apple,1,True,detect,0.9814371347427369,586,431,804,642,,apple 1
+64,dining table,3,True,detect,0.6682941555976868,3,442,1363,757,,dining table 3
+65,apple,1,True,detect,0.9815295338630676,587,432,805,642,,apple 1
+65,dining table,3,True,detect,0.6739092588424682,3,442,1363,757,,dining table 3
+66,apple,1,True,detect,0.9815708637237549,588,432,806,643,,apple 1
+66,dining table,3,True,detect,0.6745554685592652,3,442,1363,757,,dining table 3
+67,apple,1,True,detect,0.9811993956565856,589,433,807,643,,apple 1
+67,dining table,3,True,detect,0.6781879901885987,3,442,1363,757,,dining table 3
+68,apple,1,True,detect,0.9807086229324341,590,433,808,644,,apple 1
+68,dining table,3,True,detect,0.6726760506629944,3,443,1363,757,,dining table 3
+69,apple,1,True,detect,0.9800277709960937,591,434,809,644,,apple 1
+69,dining table,3,True,detect,0.6649731755256653,3,443,1363,757,,dining table 3
+70,apple,1,True,detect,0.9798277974128723,592,434,810,645,,apple 1
+70,dining table,3,True,detect,0.6553616881370544,3,444,1363,757,,dining table 3
+71,apple,1,True,detect,0.9794802069664001,593,434,811,645,,apple 1
+71,dining table,3,True,detect,0.64636390209198,3,445,1363,757,,dining table 3
+72,apple,1,True,detect,0.9795359015464783,594,435,812,645,,apple 1
+72,dining table,3,True,detect,0.6351985335350037,3,445,1363,757,,dining table 3
+73,apple,1,True,detect,0.9795955777168274,595,435,813,646,,apple 1
+73,dining table,3,True,detect,0.6247350573539734,3,445,1363,757,,dining table 3
+74,apple,1,True,detect,0.9796037912368775,596,435,814,646,,apple 1
+74,dining table,3,True,detect,0.6217718839645385,3,445,1363,757,,dining table 3
+75,apple,1,True,detect,0.9794281482696533,597,436,815,647,,apple 1
+75,dining table,3,True,detect,0.6226768016815185,3,445,1363,757,,dining table 3
+76,apple,1,True,detect,0.9792123079299927,599,436,816,647,,apple 1
+76,dining table,3,True,detect,0.628971004486084,3,446,1363,757,,dining table 3
+77,apple,1,True,detect,0.9787305951118469,600,436,817,647,,apple 1
+77,dining table,3,True,detect,0.6353099584579468,3,446,1363,757,,dining table 3
+78,apple,1,True,detect,0.9780822634696961,601,436,818,647,,apple 1
+78,dining table,3,True,detect,0.6440416574478149,3,446,1363,757,,dining table 3
+79,apple,1,True,detect,0.9555320858955383,602,436,819,647,,apple 1
+79,dining table,3,True,detect,0.6482722640037537,3,446,1363,757,,dining table 3
+80,apple,1,True,detect,0.9534007906913757,604,437,820,647,,apple 1
+80,dining table,3,True,detect,0.6461463332176208,3,446,1363,757,,dining table 3
+81,apple,1,True,detect,0.9518766045570374,605,437,821,647,,apple 1
+81,dining table,3,True,detect,0.6501980781555176,3,446,1363,757,,dining table 3
+82,apple,1,True,detect,0.9511642575263977,606,437,822,647,,apple 1
+82,dining table,3,True,detect,0.655276083946228,3,445,1363,757,,dining table 3
+83,apple,1,True,detect,0.9514144420623779,608,437,824,647,,apple 1
+83,dining table,3,True,detect,0.6584401845932006,3,445,1363,757,,dining table 3
+84,apple,1,True,detect,0.9740262627601624,609,437,825,647,,apple 1
+84,dining table,3,True,detect,0.6524607896804809,3,445,1362,757,,dining table 3
+85,apple,1,True,detect,0.9762996077537537,610,437,826,647,,apple 1
+85,dining table,3,True,detect,0.6520579338073731,3,445,1362,757,,dining table 3
+86,apple,1,True,detect,0.9780638813972473,611,437,827,647,,apple 1
+86,dining table,3,True,detect,0.648005747795105,3,445,1362,757,,dining table 3
+87,apple,1,True,detect,0.9792346119880676,613,437,828,647,,apple 1
+87,dining table,3,True,detect,0.643609368801117,3,446,1362,757,,dining table 3
+88,apple,1,True,detect,0.9794768214225769,614,437,830,647,,apple 1
+88,dining table,3,True,detect,0.6485496044158936,4,446,1361,757,,dining table 3
+89,apple,1,True,detect,0.9795324325561523,615,437,831,647,,apple 1
+89,dining table,3,True,detect,0.6597322940826416,4,447,1361,757,,dining table 3
+90,apple,1,True,detect,0.9795499444007874,616,437,833,646,,apple 1
+90,dining table,3,True,detect,0.670537531375885,4,447,1362,757,,dining table 3
+91,apple,1,True,detect,0.9796510338783264,618,437,834,646,,apple 1
+91,dining table,3,True,detect,0.6757859468460083,4,446,1362,757,,dining table 3
+92,apple,1,True,detect,0.9795871376991272,619,437,836,646,,apple 1
+92,dining table,3,True,detect,0.6780987739562988,4,446,1362,757,,dining table 3
+93,apple,1,True,detect,0.9798136591911316,620,437,837,646,,apple 1
+93,dining table,3,True,detect,0.6730213046073914,4,446,1362,757,,dining table 3
+94,apple,1,True,detect,0.9797777891159057,622,437,839,646,,apple 1
+94,dining table,3,True,detect,0.6737906336784363,4,445,1362,757,,dining table 3
+95,apple,1,True,detect,0.9795754551887512,623,437,840,646,,apple 1
+95,dining table,3,True,detect,0.6742676377296448,4,445,1362,757,,dining table 3
+96,apple,1,True,detect,0.979230260848999,625,437,842,646,,apple 1
+96,dining table,3,True,detect,0.6721498727798462,4,444,1363,757,,dining table 3
+97,apple,1,True,detect,0.9786259293556213,626,437,843,646,,apple 1
+97,dining table,3,True,detect,0.6779306530952454,4,444,1363,757,,dining table 3
+98,apple,1,True,detect,0.9777195692062378,628,437,845,647,,apple 1
+98,dining table,3,True,detect,0.6792178273200988,5,444,1363,757,,dining table 3
+99,apple,1,True,detect,0.9767850875854492,630,438,846,647,,apple 1
+99,dining table,3,True,detect,0.6804432034492492,5,444,1364,757,,dining table 3
+100,apple,1,True,detect,0.9754369020462036,632,438,848,648,,apple 1
+100,dining table,3,True,detect,0.6830728411674499,4,445,1364,757,,dining table 3
+101,apple,1,True,detect,0.9714914321899414,634,439,850,648,,apple 1
+101,dining table,3,True,detect,0.6852290391921997,4,445,1365,757,,dining table 3
+102,apple,1,True,detect,0.9646095156669616,636,439,851,649,,apple 1
+102,dining table,3,True,detect,0.6830400943756103,4,446,1365,757,,dining table 3
+103,apple,1,True,detect,0.963970935344696,637,440,853,650,,apple 1
+103,dining table,3,True,detect,0.6835071921348572,4,446,1365,757,,dining table 3
+104,apple,1,True,detect,0.9636382102966309,639,440,855,651,,apple 1
+104,dining table,3,True,detect,0.6860137581825256,4,447,1365,757,,dining table 3
+105,apple,1,True,detect,0.9627923846244812,641,441,857,651,,apple 1
+105,dining table,3,True,detect,0.6846368551254273,4,447,1365,757,,dining table 3
+106,apple,1,True,detect,0.9644168376922607,643,442,859,652,,apple 1
+106,dining table,3,True,detect,0.6789587020874024,4,448,1365,757,,dining table 3
+107,apple,1,True,detect,0.9693079233169556,645,443,861,653,,apple 1
+107,dining table,3,True,detect,0.6757571578025818,4,449,1365,757,,dining table 3
+108,apple,1,True,detect,0.9675931692123413,646,444,863,654,,apple 1
+108,dining table,3,True,detect,0.6756984949111938,4,450,1365,757,,dining table 3
+109,apple,1,True,detect,0.9658455967903137,648,445,865,655,,apple 1
+109,dining table,3,True,detect,0.6803930997848511,4,451,1365,757,,dining table 3
+110,apple,1,True,detect,0.9648619890213013,650,446,867,656,,apple 1
+110,dining table,3,True,detect,0.6883689284324646,4,453,1365,757,,dining table 3
+111,apple,1,True,detect,0.9644784808158875,652,447,868,657,,apple 1
+111,dining table,3,True,detect,0.690130603313446,4,454,1365,757,,dining table 3
+112,apple,1,True,detect,0.9647823333740234,653,448,870,657,,apple 1
+112,dining table,3,True,detect,0.684360146522522,4,455,1365,757,,dining table 3
+113,apple,1,True,detect,0.9655669927597046,655,448,872,658,,apple 1
+113,dining table,3,True,detect,0.6781082868576049,3,456,1365,757,,dining table 3
+114,apple,1,True,detect,0.9662636518478394,657,449,874,659,,apple 1
+114,dining table,3,True,detect,0.6683082461357117,3,457,1365,757,,dining table 3
+115,apple,1,True,detect,0.9673951029777527,659,450,876,659,,apple 1
+115,dining table,3,True,detect,0.6511373162269593,3,457,1365,757,,dining table 3
+116,apple,1,True,detect,0.9679896116256714,661,451,878,660,,apple 1
+116,dining table,3,True,detect,0.654601538181305,3,457,1365,757,,dining table 3
+117,apple,1,True,detect,0.9678916931152344,663,451,880,661,,apple 1
+117,dining table,3,True,detect,0.6565329194068908,3,458,1365,757,,dining table 3
+118,apple,1,True,detect,0.9681906223297119,665,452,882,661,,apple 1
+118,dining table,3,True,detect,0.6522515535354614,3,458,1365,758,,dining table 3
+119,apple,1,True,detect,0.9686035275459289,667,453,884,662,,apple 1
+119,dining table,3,True,detect,0.636951994895935,3,459,1366,758,,dining table 3
+120,apple,1,True,detect,0.9686486840248107,669,453,886,663,,apple 1
+120,dining table,3,True,detect,0.6163789391517639,3,460,1365,758,,dining table 3
+121,apple,1,True,detect,0.9691537976264953,671,454,888,663,,apple 1
+121,dining table,3,True,detect,0.5976442098617554,3,460,1365,758,,dining table 3
+122,apple,1,True,detect,0.9697941303253174,673,454,890,664,,apple 1
+122,dining table,3,True,detect,0.5908473610877991,3,461,1365,758,,dining table 3
+123,apple,1,True,detect,0.9694914937019348,675,454,892,665,,apple 1
+123,dining table,3,True,detect,0.5870347738265991,3,461,1365,758,,dining table 3
+124,apple,1,True,detect,0.9692252039909363,677,455,893,665,,apple 1
+124,dining table,3,True,detect,0.579903781414032,3,461,1365,758,,dining table 3
+125,apple,1,True,detect,0.9690643548965454,678,455,895,665,,apple 1
+125,dining table,3,True,detect,0.5850261211395263,2,461,1365,758,,dining table 3
+126,apple,1,True,detect,0.9684290170669556,680,455,897,666,,apple 1
+126,dining table,3,True,detect,0.5832553982734681,2,462,1365,758,,dining table 3
+127,apple,1,True,detect,0.9675956487655639,681,455,899,666,,apple 1
+127,dining table,3,True,detect,0.5825161933898926,2,463,1365,759,,dining table 3
+128,apple,1,True,detect,0.9676140308380127,683,455,901,666,,apple 1
+128,dining table,3,True,detect,0.5854937314987183,2,464,1365,759,,dining table 3
+129,apple,1,True,detect,0.9681409955024719,684,455,902,666,,apple 1
+129,dining table,3,True,detect,0.6019171953201294,2,464,1365,759,,dining table 3
+130,apple,1,True,detect,0.9687882542610169,686,455,904,666,,apple 1
+130,dining table,3,True,detect,0.6295348405838013,2,463,1365,759,,dining table 3
+131,apple,1,True,detect,0.9693954348564148,687,455,906,666,,apple 1
+131,dining table,3,True,detect,0.6592892527580261,2,462,1365,759,,dining table 3
+132,apple,1,True,detect,0.9700602412223815,689,455,907,666,,apple 1
+132,dining table,3,True,detect,0.6802297592163086,2,460,1365,759,,dining table 3
+133,apple,1,True,detect,0.9700269937515259,691,455,909,666,,apple 1
+133,dining table,3,True,detect,0.6983324408531189,2,459,1365,759,,dining table 3
+134,apple,1,True,detect,0.9695209503173828,693,455,911,665,,apple 1
+134,dining table,3,True,detect,0.7074818015098572,2,458,1365,759,,dining table 3
+135,apple,1,True,detect,0.9693508744239807,695,455,912,665,,apple 1
+135,dining table,3,True,detect,0.7041470289230347,2,458,1364,759,,dining table 3
+136,apple,1,True,detect,0.9692435503005982,697,454,914,665,,apple 1
+136,dining table,3,True,detect,0.7019449353218079,1,458,1365,759,,dining table 3
+137,apple,1,True,detect,0.9694614768028259,699,454,916,664,,apple 1
+137,dining table,3,True,detect,0.700319254398346,1,458,1365,759,,dining table 3
+138,apple,1,True,detect,0.9697891235351562,701,454,919,663,,apple 1
+138,dining table,3,True,detect,0.7088358879089356,1,458,1365,759,,dining table 3
+139,apple,1,True,detect,0.9701434820890427,703,453,920,663,,apple 1
+139,dining table,3,True,detect,0.7131989151239395,1,458,1365,759,,dining table 3
+140,apple,1,True,detect,0.9700402418772379,704,453,921,663,,apple 1
+140,dining table,3,True,detect,0.7250958283742269,1,458,1365,759,,dining table 3

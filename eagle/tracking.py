@@ -21,154 +21,120 @@ class ObjectTracker:
         self.paths = paths
         self.smoother = smoother
 
-    def detect(
+    def detect_persons(
         self,
         context: MediaContext,
         device: str,
-        yolo_object_model: str,
+        det_thresh: float,
+        person_detection_backend: str,
+        smoothing_window: int,
+        progress_bar=None,
+    ) -> pd.DataFrame:
+        raw_rows = self._run_person_detection(context, device, det_thresh, progress_bar)
+        self._report_detection_coverage(context, raw_rows, "person")
+        self._update_progress(progress_bar, 0, 1, "Interpolating and smoothing persons...")
+        detections = self.smoother.smooth(raw_rows, context.total_frames, smoothing_window, context.media_type)
+        self._update_progress(progress_bar, 1, 1, "Interpolating and smoothing persons...")
+        self._update_progress(progress_bar, 0, 1, "Saving persons.csv...")
+        detections.to_csv(context.persons_path, index=False)
+        self._update_progress(progress_bar, 1, 1, "Saving persons.csv...")
+        self._write_track_meta(
+            context.persons_meta_path,
+            context,
+            det_thresh,
+            context.person_stride,
+            smoothing_window,
+            {
+                "detection_stage": "persons",
+                "person_detection_source": "pose",
+                "backend": person_detection_backend,
+            },
+        )
+        return detections
+
+    def detect_objects(
+        self,
+        context: MediaContext,
+        device: str,
+        object_detection_backend: str,
         det_thresh: float,
         smoothing_window: int,
         selected_object_classes: list[str],
         progress_bar=None,
     ) -> pd.DataFrame:
         needs_non_person_detections = any(cls_name != "person" for cls_name in selected_object_classes)
-        raw_rows = self._run_detection(
-            context,
-            device,
-            det_thresh,
-            needs_non_person_detections,
-            progress_bar,
-        )
-        self._reassign_non_person_track_ids(raw_rows)
-        self._report_detection_coverage(context, raw_rows)
-        self._update_progress(progress_bar, 0, 1, "Smoothing object tracks...")
+        if needs_non_person_detections:
+            raw_rows = self._run_non_person_detection(context, device, det_thresh, progress_bar)
+            self._report_detection_coverage(context, raw_rows, "non-person object")
+        else:
+            raw_rows = []
+            self._notify_skip(
+                progress_bar,
+                "Skipping non-person object detection: only person annotations were requested.",
+            )
+        self._update_progress(progress_bar, 0, 1, "Interpolating and smoothing objects...")
         detections = self.smoother.smooth(raw_rows, context.total_frames, smoothing_window, context.media_type)
-        self._update_progress(progress_bar, 1, 1, "Smoothing object tracks...")
+        self._update_progress(progress_bar, 1, 1, "Interpolating and smoothing objects...")
         self._update_progress(progress_bar, 0, 1, "Saving objects.csv...")
         detections.to_csv(context.objects_path, index=False)
         self._update_progress(progress_bar, 1, 1, "Saving objects.csv...")
-        try:
-            with self.paths.botsort_runtime_path.open("r", encoding="utf-8") as file:
-                tracker_config = yaml.safe_load(file) or {}
-        except Exception:
-            tracker_config = None
-        with context.objects_meta_path.open("w", encoding="utf-8") as file:
-            json.dump(
-                {
-                    "raw_detection_cache": True,
-                    "media_path": str(context.media_path.resolve()),
-                    "media_mtime_ns": context.media_path.stat().st_mtime_ns,
-                    "det_thresh": float(det_thresh),
-                    "yolo_object_model": yolo_object_model,
-                    "object_stride": int(context.object_stride),
-                    "object_smoothing_window": int(smoothing_window),
-                    "person_detection_source": "pose",
-                    "includes_non_person_detections": bool(needs_non_person_detections),
-                    "tracker_config": tracker_config,
-                },
-                file,
-                ensure_ascii=False,
-                indent=2,
-            )
+        self._write_track_meta(
+            context.objects_meta_path,
+            context,
+            det_thresh,
+            context.object_stride,
+            smoothing_window,
+            {
+                "detection_stage": "objects",
+                "backend": object_detection_backend,
+                "includes_non_person_detections": bool(needs_non_person_detections),
+            },
+        )
         return detections
 
-    def _run_detection(
+    def _run_person_detection(
         self,
         context: MediaContext,
         device: str,
         det_thresh: float,
-        needs_non_person_detections: bool,
         progress_bar=None,
     ) -> list[dict[str, Any]]:
         if context.media_type == "image":
-            return self._detect_image(context, device, det_thresh, needs_non_person_detections, progress_bar)
-        return self._detect_video(context, device, det_thresh, needs_non_person_detections, progress_bar)
+            raw_rows = self._detect_image_persons(context, device, det_thresh)
+            self._update_progress(progress_bar, 1, 1, "Detecting persons (pose)...")
+            return raw_rows
 
-    def _detect_image(
-        self,
-        context: MediaContext,
-        device: str,
-        det_thresh: float,
-        needs_non_person_detections: bool,
-        progress_bar=None,
-    ) -> list[dict[str, Any]]:
         raw_rows: list[dict[str, Any]] = []
-        raw_rows.extend(self._detect_image_persons(context, device, det_thresh))
-        if needs_non_person_detections:
-            raw_rows.extend(self._detect_image_non_persons(context, device, det_thresh))
-        else:
-            self._notify_skip(
-                progress_bar,
-                "Skipping non-person object detection: only person annotations were requested.",
-            )
-        self._update_progress(progress_bar, 1, 1, "Detecting objects...")
-        return raw_rows
-
-    def _detect_video(
-        self,
-        context: MediaContext,
-        device: str,
-        det_thresh: float,
-        needs_non_person_detections: bool,
-        progress_bar=None,
-    ) -> list[dict[str, Any]]:
-        raw_rows: list[dict[str, Any]] = []
-        expected_steps = max(1, len(context.object_frame_idx))
-        stages = 1 + int(needs_non_person_detections)
-        global_step = 0
+        expected_steps = max(1, len(context.person_frame_idx))
         update_interval = max(1, expected_steps // 200)
-
         for result_index, result in enumerate(self._run_pose_track(context, device)):
             raw_rows.extend(self._pose_rows_from_result(result_index, result, context, det_thresh))
-            global_step += 1
-            if global_step == expected_steps or global_step % update_interval == 0:
-                self._update_progress(progress_bar, global_step, expected_steps * stages, "Detecting persons (pose)...")
-
-        if needs_non_person_detections:
-            for result_index, result in enumerate(self._run_object_track(context, device)):
-                raw_rows.extend(self._non_person_rows_from_result(result_index, result, context, det_thresh))
-                global_step += 1
-                if result_index + 1 == expected_steps or (result_index + 1) % update_interval == 0:
-                    self._update_progress(
-                        progress_bar,
-                        global_step,
-                        expected_steps * stages,
-                        "Detecting non-person objects...",
-                    )
-        else:
-            self._notify_skip(
-                progress_bar,
-                "Skipping non-person object detection: only person annotations were requested.",
-            )
+            step = result_index + 1
+            if step == expected_steps or step % update_interval == 0:
+                self._update_progress(progress_bar, step, expected_steps, "Detecting persons (pose)...")
         return raw_rows
 
-    def _reassign_non_person_track_ids(self, raw_rows: list[dict[str, Any]]) -> None:
-        person_ids = {str(row["track_id"]) for row in raw_rows if str(row.get("cls", "")) == "person"}
-        assigned_ids = set(person_ids)
+    def _run_non_person_detection(
+        self,
+        context: MediaContext,
+        device: str,
+        det_thresh: float,
+        progress_bar=None,
+    ) -> list[dict[str, Any]]:
+        if context.media_type == "image":
+            raw_rows = self._detect_image_non_persons(context, device, det_thresh)
+            self._update_progress(progress_bar, 1, 1, "Detecting non-person objects...")
+            return raw_rows
 
-        numeric_person_ids = [int(track_id) for track_id in person_ids if self._is_int_like(track_id)]
-        next_track_id = max(numeric_person_ids, default=0) + 1
-        remap: dict[tuple[str, str], str] = {}
-
-        for row in raw_rows:
-            cls_name = str(row.get("cls", ""))
-            if cls_name == "person":
-                continue
-
-            original_track_id = str(row["track_id"])
-            key = (cls_name, original_track_id)
-            if key not in remap:
-                candidate = original_track_id
-                if candidate in assigned_ids:
-                    while str(next_track_id) in assigned_ids:
-                        next_track_id += 1
-                    candidate = str(next_track_id)
-                    next_track_id += 1
-                remap[key] = candidate
-                assigned_ids.add(candidate)
-
-            row["track_id"] = remap[key]
-            row["label"] = f"{cls_name} {row['track_id']}"
+        raw_rows: list[dict[str, Any]] = []
+        expected_steps = max(1, len(context.object_frame_idx))
+        update_interval = max(1, expected_steps // 200)
+        for result_index, result in enumerate(self._run_object_track(context, device)):
+            raw_rows.extend(self._non_person_rows_from_result(result_index, result, context, det_thresh))
+            step = result_index + 1
+            if step == expected_steps or step % update_interval == 0:
+                self._update_progress(progress_bar, step, expected_steps, "Detecting non-person objects...")
+        return raw_rows
 
     def _detect_image_persons(self, context: MediaContext, device: str, det_thresh: float) -> list[dict[str, Any]]:
         assert self.models.yolo_pose is not None
@@ -199,7 +165,7 @@ class ObjectTracker:
             stream=True,
             verbose=False,
             tracker=str(self.paths.botsort_runtime_path),
-            vid_stride=context.object_stride,
+            vid_stride=context.person_stride,
             device=self._yolo_device(device),
         )
 
@@ -249,7 +215,7 @@ class ObjectTracker:
             raw_rows.append(
                 {
                     "yolo_idx": result_index,
-                    "frame_idx": min(result_index * context.object_stride, context.total_frames - 1),
+                    "frame_idx": min(result_index * context.person_stride, context.total_frames - 1),
                     "cls": "person",
                     "track_id": str(int(track_id)) if self._is_int_like(track_id) else str(track_id),
                     "source": "pose",
@@ -378,7 +344,34 @@ class ObjectTracker:
     def _update_progress(self, progress_bar, step: int, total: int, label: str) -> None:
         update_progress(progress_bar, step, total, label)
 
-    def _report_detection_coverage(self, context: MediaContext, raw_rows: list[dict[str, Any]]) -> None:
+    def _write_track_meta(
+        self,
+        meta_path,
+        context: MediaContext,
+        det_thresh: float,
+        stride: int,
+        smoothing_window: int,
+        extra: dict[str, Any],
+    ) -> None:
+        try:
+            with self.paths.botsort_runtime_path.open("r", encoding="utf-8") as file:
+                tracker_config = yaml.safe_load(file) or {}
+        except Exception:
+            tracker_config = None
+        with meta_path.open("w", encoding="utf-8") as file:
+            meta = {
+                "raw_detection_cache": True,
+                "media_path": str(context.media_path.resolve()),
+                "media_mtime_ns": context.media_path.stat().st_mtime_ns,
+                "det_thresh": float(det_thresh),
+                "stride": int(stride),
+                "smoothing_window": int(smoothing_window),
+                "tracker_config": tracker_config,
+            }
+            meta.update(extra)
+            json.dump(meta, file, ensure_ascii=False, indent=2)
+
+    def _report_detection_coverage(self, context: MediaContext, raw_rows: list[dict[str, Any]], label: str = "tracking") -> None:
         """Print how many frame results Ultralytics actually yielded."""
 
         if context.media_type != "video":
@@ -390,13 +383,14 @@ class ObjectTracker:
             yolo_max = max(row.get("yolo_idx", 0) for row in raw_rows)
             yielded_steps = yolo_max + 1
 
-        expected_steps = len(context.object_frame_idx)
+        expected_steps = len(context.person_frame_idx) if label == "person" else len(context.object_frame_idx)
         missing_steps = max(expected_steps - yielded_steps, 0)
         missing_ratio = 0.0 if expected_steps == 0 else missing_steps / expected_steps
 
         print(
             (
                 "Tracking coverage: "
+                f"stage={label}, "
                 f"readable_total_frames={context.total_frames}, "
                 f"expected_object_steps={expected_steps}, "
                 f"yielded_steps={yielded_steps}, "

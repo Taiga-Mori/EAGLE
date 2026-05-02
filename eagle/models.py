@@ -26,7 +26,17 @@ except Exception:
     ULTRALYTICS_LOGGER = None
 
 from .mobile_gaze import mobileone_s0_gaze
-from .constants import DEFAULT_OFFSCREEN_DIRECTION_BACKEND, DEFAULT_YOLO_OBJECT_MODEL, YOLO_OBJECT_MODELS
+from .constants import (
+    DEFAULT_FACE_DETECTION_BACKEND,
+    DEFAULT_GAZE_DETECTION_BACKEND,
+    DEFAULT_HEAD_POSE_DETECTION_BACKEND,
+    DEFAULT_OBJECT_DETECTION_BACKEND,
+    DEFAULT_PERSON_DETECTION_BACKEND,
+    GAZE_DETECTION_BACKENDS,
+    HEAD_POSE_DETECTION_BACKENDS,
+    OBJECT_DETECTION_BACKENDS,
+    PERSON_DETECTION_BACKENDS,
+)
 from .types import AppPaths
 
 MEDIAPIPE_FACE_DETECTOR_URL = (
@@ -69,7 +79,8 @@ class ModelManager:
         self.mobile_gaze = None
         self.mobile_gaze_transform = None
         self.loaded_device: str | None = None
-        self.loaded_yolo_object_model: str | None = None
+        self.loaded_object_detection_backend: str | None = None
+        self.loaded_person_detection_backend: str | None = None
         self._configure_download_environment()
 
     def _configure_download_environment(self) -> None:
@@ -131,23 +142,23 @@ class ModelManager:
 
         F.scaled_dot_product_attention = _scaled_dot_product_attention
 
-    def yolo_object_path(self, model_name: str) -> Path:
-        return self.paths.app_dir / f"{model_name}.pt"
+    def yolo_object_path(self, backend: str) -> Path:
+        return self.paths.app_dir / f"{backend}.pt"
 
-    def ensure_yolo_weights(self, model_name: str) -> None:
-        if model_name not in YOLO_OBJECT_MODELS:
-            raise ValueError(f"Unsupported YOLO object model '{model_name}'.")
-        self._remove_unselected_yolo_object_weights(model_name)
+    def ensure_yolo_object_weights(self, backend: str) -> None:
+        if backend not in OBJECT_DETECTION_BACKENDS:
+            raise ValueError(f"Unsupported object detection backend '{backend}'.")
+        self._remove_unselected_yolo_object_weights(backend)
         self._ensure_download(
-            self.yolo_object_path(model_name),
-            YOLO_OBJECT_MODELS[model_name],
-            f"YOLO object weights ({model_name})",
+            self.yolo_object_path(backend),
+            OBJECT_DETECTION_BACKENDS[backend],
+            f"YOLO object weights ({backend})",
         )
 
-    def _remove_unselected_yolo_object_weights(self, selected_model_name: str) -> None:
-        selected_path = self.yolo_object_path(selected_model_name)
-        for model_name in YOLO_OBJECT_MODELS:
-            candidate = self.yolo_object_path(model_name)
+    def _remove_unselected_yolo_object_weights(self, selected_backend: str) -> None:
+        selected_path = self.yolo_object_path(selected_backend)
+        for backend in OBJECT_DETECTION_BACKENDS:
+            candidate = self.yolo_object_path(backend)
             if candidate == selected_path or not candidate.exists():
                 continue
             try:
@@ -156,11 +167,13 @@ class ModelManager:
             except Exception as exc:
                 raise RuntimeError(f"Failed to remove unused YOLO object weights: {candidate}\nOriginal error: {exc}") from exc
 
-    def ensure_yolo_pose_weights(self) -> None:
+    def ensure_person_detection_weights(self, backend: str) -> None:
+        if backend not in PERSON_DETECTION_BACKENDS:
+            raise ValueError(f"Unsupported person detection backend '{backend}'.")
         self._ensure_download(
             self.paths.yolo_pose_path,
-            "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-pose.pt",
-            "YOLO pose weights",
+            PERSON_DETECTION_BACKENDS[backend],
+            f"Person detection weights ({backend})",
         )
 
     def ensure_mobile_gaze_weights(self) -> None:
@@ -228,9 +241,11 @@ class ModelManager:
     def load(
         self,
         device: str,
-        face_detection_backend: str = "mediapipe",
-        offscreen_direction_backend: str = DEFAULT_OFFSCREEN_DIRECTION_BACKEND,
-        yolo_object_model: str = DEFAULT_YOLO_OBJECT_MODEL,
+        person_detection_backend: str = DEFAULT_PERSON_DETECTION_BACKEND,
+        object_detection_backend: str = DEFAULT_OBJECT_DETECTION_BACKEND,
+        face_detection_backend: str = DEFAULT_FACE_DETECTION_BACKEND,
+        gaze_detection_backend: str = DEFAULT_GAZE_DETECTION_BACKEND,
+        head_pose_detection_backend: str = DEFAULT_HEAD_POSE_DETECTION_BACKEND,
     ) -> None:
         if device.startswith("cuda:"):
             cuda_device = torch.device(device)
@@ -241,15 +256,20 @@ class ModelManager:
                 )
             torch.cuda.set_device(cuda_device)
             print(f"Using CUDA device {device}: {torch.cuda.get_device_name(cuda_device.index)}", flush=True)
-        self.ensure_yolo_weights(yolo_object_model)
-        self.ensure_yolo_pose_weights()
-        if offscreen_direction_backend == "mobileone":
+        if gaze_detection_backend not in GAZE_DETECTION_BACKENDS:
+            raise ValueError(f"Unsupported gaze detection backend '{gaze_detection_backend}'.")
+        if head_pose_detection_backend not in HEAD_POSE_DETECTION_BACKENDS:
+            raise ValueError(f"Unsupported head pose detection backend '{head_pose_detection_backend}'.")
+        self.ensure_yolo_object_weights(object_detection_backend)
+        self.ensure_person_detection_weights(person_detection_backend)
+        if head_pose_detection_backend == "mobileone":
             self.ensure_mobile_gaze_weights()
-        if self.yolo is None or self.loaded_yolo_object_model != yolo_object_model:
-            self.yolo = YOLO(self.yolo_object_path(yolo_object_model))
-            self.loaded_yolo_object_model = yolo_object_model
-        if self.yolo_pose is None:
+        if self.yolo is None or self.loaded_object_detection_backend != object_detection_backend:
+            self.yolo = YOLO(self.yolo_object_path(object_detection_backend))
+            self.loaded_object_detection_backend = object_detection_backend
+        if self.yolo_pose is None or self.loaded_person_detection_backend != person_detection_backend:
             self.yolo_pose = YOLO(self.paths.yolo_pose_path)
+            self.loaded_person_detection_backend = person_detection_backend
         if face_detection_backend == "mediapipe" and self.mediapipe_face_detector is None:
             self._load_mediapipe_face_detector()
         if face_detection_backend == "retinaface" and (self.retinaface is None or self.loaded_device != device):
@@ -281,7 +301,7 @@ class ModelManager:
                     "Please make sure this machine is connected to the internet and try again.\n"
                     f"Original error: {exc}"
                 ) from exc
-        if offscreen_direction_backend == "mobileone" and (
+        if head_pose_detection_backend == "mobileone" and (
             self.mobile_gaze is None or self.mobile_gaze_transform is None or self.loaded_device != device
         ):
             try:

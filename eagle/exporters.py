@@ -82,13 +82,13 @@ class AnnotationExporter:
         if visualization_mode == "both":
             outputs: list[Path] = []
             if not context.annotated_image_path.exists():
-                raise RuntimeError("Run det_faces_and_gaze() before make_image().")
+                raise RuntimeError("Run det_faces() and det_gaze() before make_image().")
             outputs.append(context.annotated_image_path)
             outputs.extend(self.make_heatmap_images(context))
             shutil.rmtree(context.temp_dir, ignore_errors=True)
             return outputs
         if not context.annotated_image_path.exists():
-            raise RuntimeError("Run det_faces_and_gaze() before make_image().")
+            raise RuntimeError("Run det_faces() and det_gaze() before make_image().")
         shutil.rmtree(context.temp_dir, ignore_errors=True)
         return context.annotated_image_path
 
@@ -141,11 +141,17 @@ class AnnotationExporter:
         det_thresh: float,
         gaze_target_radius: int,
         person_part_distance_scale: float,
+        person_part_min_conf: float,
         selected_object_classes: list[str],
     ) -> pd.DataFrame:
         gaze_df = pd.read_csv(context.gaze_path)
         face_df = pd.read_csv(context.faces_path)
-        object_df = pd.read_csv(context.objects_path)
+        object_frames = []
+        if context.persons_path.exists():
+            object_frames.append(pd.read_csv(context.persons_path))
+        if context.objects_path.exists():
+            object_frames.append(pd.read_csv(context.objects_path))
+        object_df = pd.concat(object_frames, ignore_index=True) if object_frames else pd.DataFrame()
         if gaze_df.empty or face_df.empty or object_df.empty:
             empty_df = pd.DataFrame(columns=ANNOTATION_COLUMNS)
             empty_df.to_csv(context.annotation_path, index=False)
@@ -156,7 +162,7 @@ class AnnotationExporter:
             axis=1,
         )
         object_df["area"] = (object_df["x2"] - object_df["x1"]) * (object_df["y2"] - object_df["y1"])
-        face_df = face_df[face_df["face_detected"] == True].copy()
+        face_df = face_df[face_df["face_x1"].notna()].copy()
         face_df["face_area"] = (face_df["face_x2"] - face_df["face_x1"]) * (face_df["face_y2"] - face_df["face_y1"])
 
         target_rows = []
@@ -179,6 +185,7 @@ class AnnotationExporter:
                         det_thresh,
                         gaze_target_radius,
                         person_part_distance_scale,
+                        person_part_min_conf,
                         selected_object_classes,
                     ),
                 }
@@ -253,6 +260,7 @@ class AnnotationExporter:
         det_thresh: float,
         gaze_target_radius: int,
         person_part_distance_scale: float,
+        person_part_min_conf: float,
         selected_object_classes: list[str],
     ) -> str:
         if pd.isna(gaze_row["inout"]):
@@ -302,6 +310,7 @@ class AnnotationExporter:
                         int(gaze_row["y_gaze"]),
                         gaze_target_radius,
                         person_part_distance_scale,
+                        person_part_min_conf,
                     )
                     if part_label is not None and part_label != "other":
                         candidates.append((float(hit["area"]), f"person {hit['track_id']}'s {part_label}"))

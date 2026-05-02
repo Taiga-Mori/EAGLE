@@ -1,6 +1,6 @@
 # EAGLE
 <p align="center">
-  <strong>E</strong>nd-to-end <strong>A</strong>utomatic <strong>G</strong>aze <strong>L</strong>ab<strong>E</strong>ling tool for interaction studies
+  <em><strong>E</strong>nd-to-end <strong>A</strong>utomatic <strong>G</strong>aze <strong>L</strong>ab<strong>E</strong>ling tool for interaction studies</em>
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@ EAGLE es una herramienta de apoyo para anotación de mirada, basada en Streamlit
 
 - Seguimiento de personas con YOLO pose
 - Seguimiento de objetos no humanos con YOLO detection
-- Detección de rostros con MediaPipe por defecto, con RetinaFace también disponible
+- Detección de rostros con RetinaFace por defecto, con MediaPipe también disponible
 - Estimación de mapas de calor de mirada con GAZELLE
 - Estimación de dirección fuera de pantalla con MobileOne gaze
 - Exportación CSV y exportación de imágenes/videos anotados
@@ -47,21 +47,13 @@ Para cada imagen o video de entrada, el pipeline actual puede:
 - Estimar mapas de calor y puntos de mirada
 - Inferir etiquetas de dirección fuera de pantalla como `left`, `up right`, `down` o `front` (orientación centrada en la persona)
 - Generar segmentos de mirada estilo ELAN en `annotation.csv`
-- Reutilizar `objects.csv` y salidas de mirada en caché cuando los ajustes siguen coincidiendo
-- Forzar la reutilización de cachés antiguos incluso cuando la app detecta diferencias de configuración
+- Reutilizar las cachés de cada fase cuando los ajustes siguen coincidiendo
 
 Para detecciones de personas, EAGLE también usa pose keypoints para asignar la mirada a partes del cuerpo como face, head, torso, arms o legs cuando es posible.
 
 ## Entradas compatibles
 - Imágenes: `.jpg`, `.jpeg`, `.png`, `.bmp`, `.tif`, `.tiff`, `.webp`
 - Videos: `.mp4`, `.mov`, `.avi`, `.mkv`, `.m4v`, `.wmv`, `.webm`
-
-## Notas actuales de ejecución
-- En macOS, `Browse` abre un diálogo de archivo nativo mediante `osascript`.
-- En Linux, incluido Docker, usa `Container File Browser` o introduce manualmente una ruta montada.
-- El pipeline principal es código Python normal bajo [`eagle/`](eagle/).
-- Se incluyen binarios de FFmpeg para macOS y Windows.
-- Los archivos de modelos se guardan en caché bajo `~/.EAGLE/`.
 
 ## Descarga
 Los paquetes precompilados de la aplicación están disponibles en GitHub Releases:
@@ -99,7 +91,7 @@ En el primer uso, EAGLE puede descargar y guardar en caché:
 
 - Pesos YOLO object seleccionados: uno de `yolo26n.pt`, `yolo26s.pt`, `yolo26m.pt`, `yolo26l.pt` o `yolo26x.pt`
 - `yolo26x-pose.pt`
-- Pesos preentrenados de RetinaFace cuando se selecciona el backend RetinaFace
+- Pesos preentrenados de RetinaFace
 - Archivos torch.hub de GAZELLE
 - `mobileone_s0.pt`
 
@@ -143,14 +135,18 @@ Comportamiento del directorio de salida:
   - Usa `cuda:0`, `cuda:1`, ... cuando hay varias GPU NVIDIA disponibles; si no, `mps` o `cpu`.
 
 ### Inference
-- `Detection threshold`
-  - Umbral compartido para filtrar objetos, filtrar rostros e interpretar gaze in/out.
-- `YOLO object model`
-  - Selecciona el YOLO26 detection model (`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l` o `yolo26x`). EAGLE conserva solo los pesos object seleccionados en `~/.EAGLE/`.
+- `Person detection backend`
+  - `yolo26x-pose`.
+- `Object detection backend`
+  - Selecciona el backend YOLO26 detection (`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l` o `yolo26x`). EAGLE conserva solo los pesos object seleccionados en `~/.EAGLE/`.
 - `Face detection backend`
-  - `mediapipe` por defecto, o `retinaface` si quieres usar RetinaFace.
-- `Off-screen direction backend`
-  - `mobileone`. Este ajuste queda preparado para futuros backends de modelos de dirección de cabeza.
+  - `retinaface` por defecto, o `mediapipe` si quieres usar MediaPipe.
+- `Gaze detection backend`
+  - `gazelle`.
+- `Head pose detection backend`
+  - `mobileone`. Este ajuste queda preparado para futuros backends de pose de cabeza.
+- `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
+  - Umbrales separados para seguimiento de personas con pose, seguimiento de objetos que no son personas, detección de rostros e interpretación gaze in/out.
 - `Visualization mode`
   - `both`, `point` o `heatmap`
 - `Heatmap alpha`
@@ -159,29 +155,29 @@ Comportamiento del directorio de salida:
   - `0` significa asignación solo por punto. Valores mayores usan un área circular alrededor del punto de mirada.
 - `Person part distance scale`
   - Controla cuán lejos puede estar la mirada de los keypoints de una persona y seguir contando como parte del cuerpo.
-- `Reuse existing objects.csv when available`
-  - Reutiliza detecciones de objetos en caché cuando los metadatos siguen coincidiendo con la ejecución actual.
-- `Reuse existing gaze.csv and heatmaps.npz when available`
-  - Reutiliza salidas de mirada en caché cuando los metadatos siguen coincidiendo.
+- `Person part keypoint min confidence`
+  - Confianza mínima de pose keypoint usada para asignar partes del cuerpo. El valor predeterminado es `0.0`.
+- `Reuse existing persons.csv/objects.csv/faces.csv/gaze.csv when available`
+  - Reutiliza la caché de cada fase por separado cuando los metadatos siguen coincidiendo con la ejecución actual.
 - `Track all object classes`
   - Al desactivarlo, puedes elegir explícitamente qué clases COCO conservar.
 
 ### Temporal Settings
+- `Person smoothing window`
+  - Ventana de suavizado para cajas de personas.
 - `Object smoothing window`
   - Ventana de suavizado para cajas de objetos seguidos.
 - `Face smoothing window`
   - Ventana de suavizado para cajas de rostro interpoladas.
 - `Gaze smoothing window`
   - Ventana de suavizado para estimaciones de mirada y ángulos de dirección fuera de pantalla.
-- `Object frame interval`
-  - Solo videos. La detección/seguimiento de objetos se ejecuta cada N fotogramas.
-- `Gaze frame interval`
-  - Solo videos. La estimación de mirada se ejecuta cada N fotogramas y luego se interpola/suaviza.
+- `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
+  - Solo videos. Cada etapa se ejecuta con el target FPS seleccionado y escribe su propia salida intermedia.
 
 Importante:
 
-- `Gaze frame interval` puede ser menor que `Object frame interval`. Los object tracks se interpolan linealmente entre fotogramas de detección y los videos se renderizan al FPS de origen.
-- Internamente, los ajustes de video se convierten a valores target FPS a partir del FPS de origen.
+- Los FPS de etapas posteriores pueden cambiarse sin invalidar cachés de etapas anteriores cuando sus propios ajustes no cambian. Tracks, faces, gaze y head pose se interpolan o suavizan después de ejecutar cada etapa.
+- Internamente, los target FPS se convierten a frame strides a partir del FPS de origen.
 
 ### BoT-SORT
 La UI expone estos ajustes de tracker desde [`config/botsort.yaml`](config/botsort.yaml):
@@ -195,44 +191,20 @@ La UI expone estos ajustes de tracker desde [`config/botsort.yaml`](config/botso
 - `proximity_thresh`
 - `appearance_thresh`
 
-## Comportamiento de caché
-EAGLE escribe archivos de metadatos de caché y los revisa antes de reutilizar resultados:
-
-- `objects.csv` con `.objects_meta.json`
-- `faces.csv` con `.faces_meta.json`
-- `gaze.csv` con `gaze_heatmaps.npz` y `.gaze_meta.json`
-
-La reutilización de object cache depende de:
-
-- Ruta del archivo de entrada
-- Timestamp del archivo de entrada
-- Detection threshold
-- YOLO object model
-- Object frame interval
-- Object smoothing window
-- Clases de objetos seleccionadas
-- Ajustes de BoT-SORT
-- Si la caché fue creada con el formato actual de seguimiento de personas basado en pose
-
-La reutilización de gaze cache depende de:
-
-- Ruta del archivo de entrada
-- Timestamp del archivo de entrada
-- Detection threshold
-- Face detection backend
-- Off-screen direction backend
-- Gaze frame interval
-- Face smoothing window
-- Gaze smoothing window
-- Timestamp de `faces.csv`
-
-Si la app detecta una diferencia, muestra una advertencia y ofrece un checkbox `Force reuse`.
+## Consejos de velocidad
+- Usa `cuda:*` en GPU NVIDIA, o `mps` en Apple Silicon cuando esté disponible.
+- Reduce los FPS de cada etapa para disminuir trabajo de detección repetido, especialmente en etapas distintas de gaze.
+- Si los rostros son mayoritariamente frontales, prueba `mediapipe` como face detection backend.
 
 ## Archivos de salida
 Las salidas actuales pueden incluir:
 
+- `persons.csv`
+  - Resultados suavizados de seguimiento de personas
+- `.persons_meta.json`
+  - Metadatos usados para validar la reutilización de person cache
 - `objects.csv`
-  - Resultados suavizados de seguimiento de objetos/personas
+  - Resultados suavizados de seguimiento de objetos que no son personas
 - `.objects_meta.json`
   - Metadatos usados para validar la reutilización de object cache
 - `faces.csv`
@@ -240,7 +212,7 @@ Las salidas actuales pueden incluir:
 - `.faces_meta.json`
   - Metadatos usados para validar la reutilización de face cache
 - `gaze.csv`
-  - Valores raw gaze, puntos de mirada procesados y campos de dirección fuera de pantalla
+  - Puntos de mirada suavizados, probabilidad in/out y campos de dirección fuera de pantalla
 - `gaze_heatmaps.npz`
   - Mapas de calor dense de mirada en caché
 - `.gaze_meta.json`
@@ -259,30 +231,29 @@ Las salidas actuales pueden incluir:
 Las carpetas temporales como `temp/` y `heatmaps/` se eliminan después de exportar.
 
 ## Contenido de CSV
-Columnas de `objects.csv`:
+Columnas de `persons.csv`:
 
 - `frame_idx`
 - `cls`
 - `track_id`
+- `object_detected`
 - `source`
 - `conf`
 - `x1`, `y1`, `x2`, `y2`
 - `pose_keypoints`
 - `label`
 
-Columnas de `gaze.csv`:
+Columnas de `objects.csv`:
 
 - `frame_idx`
+- `cls`
 - `track_id`
-- `raw_gaze_detected`
-- `raw_inout`
-- `raw_x_gaze`, `raw_y_gaze`
-- `gaze_detected`
-- `inout`
-- `x_gaze`, `y_gaze`
-- `offscreen_direction`
-- `offscreen_yaw`
-- `offscreen_pitch`
+- `object_detected`
+- `source`
+- `conf`
+- `x1`, `y1`, `x2`, `y2`
+- `pose_keypoints`
+- `label`
 
 Columnas de `faces.csv`:
 
@@ -291,6 +262,17 @@ Columnas de `faces.csv`:
 - `face_detected`
 - `face_conf`
 - `face_x1`, `face_y1`, `face_x2`, `face_y2`
+
+Columnas de `gaze.csv`:
+
+- `frame_idx`
+- `track_id`
+- `gaze_detected`
+- `inout`
+- `x_gaze`, `y_gaze`
+- `offscreen_direction`
+- `offscreen_yaw`
+- `offscreen_pitch`
 
 Columnas de `annotation.csv`:
 
@@ -316,18 +298,25 @@ eagle = EAGLE()
 eagle.preprocess(
     input_path="input.mp4",
     output_dir="output_dir",
-    det_thresh=0.5,
+    person_target_fps=15,
+    object_target_fps=15,
+    face_target_fps=15,
+    gaze_target_fps=15,
+    head_pose_target_fps=15,
+    person_det_thresh=0.5,
+    object_det_thresh=0.5,
+    face_det_thresh=0.5,
+    gaze_det_thresh=0.5,
+    person_detection_backend="yolo26x-pose",
+    object_detection_backend="yolo26x",
+    face_detection_backend="retinaface",
+    gaze_detection_backend="gazelle",
+    head_pose_detection_backend="mobileone",
     device="cpu",
     visualization_mode="both",
+    person_part_min_conf=0.0,
 )
 results = eagle.run_all()
-```
-
-## Validación
-Validación básica de sintaxis:
-
-```bash
-python -m py_compile main.py app.py eagle/*.py
 ```
 
 ## Aviso legal

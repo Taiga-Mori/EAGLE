@@ -1,0 +1,12 @@
+{
+  "gaze_point_method": "peak_region_centroid",
+  "gaze_detection_backend": "gazelle",
+  "gaze_smoothing_window": 5,
+  "gaze_stride": 1,
+  "head_pose_stride": 1,
+  "det_thresh": 0.5,
+  "head_pose_detection_backend": "mobileone",
+  "media_path": "/Users/taigamori/Works/EAGLE/sample/three.mp4",
+  "media_mtime_ns": 1777367442676576066,
+  "faces_mtime_ns": 1777734274066330620
+}

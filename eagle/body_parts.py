@@ -58,7 +58,7 @@ def parse_pose_keypoints(raw_value: Any) -> list[tuple[float, float, float]]:
     return keypoints
 
 
-def build_person_part_shapes(detection: dict[str, Any], min_conf: float = 0.2) -> dict[str, dict[str, Any]]:
+def build_person_part_shapes(detection: dict[str, Any], min_conf: float = 0.0) -> dict[str, dict[str, Any]]:
     """Build approximate body-part shapes from COCO pose keypoints."""
 
     keypoints = parse_pose_keypoints(detection.get("pose_keypoints"))
@@ -134,12 +134,14 @@ def build_person_part_shapes(detection: dict[str, Any], min_conf: float = 0.2) -
     right_shoulder = point(RIGHT_SHOULDER)
     left_hip = point(LEFT_HIP)
     right_hip = point(RIGHT_HIP)
+    chest = _chest_point(left_shoulder, right_shoulder, left_hip, right_hip)
     upper_polygon = [pt for pt in [left_shoulder, right_shoulder, right_hip, left_hip] if pt is not None]
     if len(upper_polygon) == 4:
         shapes["upper body"] = {
             "kind": "polygon",
             "points": upper_polygon,
             "area": polygon_area(upper_polygon),
+            "points_of_interest": [chest] if chest is not None else [],
         }
     else:
         shapes["upper body"] = _fallback_part_shapes(detection)["upper body"]
@@ -167,7 +169,7 @@ def resolve_person_part_label(
     y: int,
     extra_radius: int = 0,
     distance_scale: float = 0.22,
-    min_conf: float = 0.2,
+    min_conf: float = 0.0,
 ) -> str | None:
     """Resolve a body-part label from thick skeleton line/point regions inside one person box."""
 
@@ -211,7 +213,7 @@ def build_person_attention_regions(
     detection: dict[str, Any],
     extra_radius: int = 0,
     distance_scale: float = 0.22,
-    min_conf: float = 0.2,
+    min_conf: float = 0.0,
 ) -> list[dict[str, Any]]:
     """Return thick line/circle regions used for body-part assignment."""
 
@@ -252,6 +254,7 @@ def build_person_attention_regions(
     right_knee = point(RIGHT_KNEE)
     left_ankle = point(LEFT_ANKLE)
     right_ankle = point(RIGHT_ANKLE)
+    chest = _chest_point(left_shoulder, right_shoulder, left_hip, right_hip)
 
     add_segment("arm/hand", left_shoulder, left_elbow)
     add_segment("arm/hand", left_elbow, left_wrist)
@@ -268,6 +271,7 @@ def build_person_attention_regions(
     add_segment("upper body", left_hip, right_hip)
     add_point("upper body", left_shoulder)
     add_point("upper body", right_shoulder)
+    add_point("upper body", chest)
 
     add_segment("lower body", left_hip, left_knee)
     add_segment("lower body", left_knee, left_ankle)
@@ -292,7 +296,12 @@ def point_hits_part_shape(x: int, y: int, shape: dict[str, Any], extra_radius: i
         if len(contour) < 3:
             return False
         distance = cv2.pointPolygonTest(contour, (float(x), float(y)), True)
-        return distance >= -float(extra_radius)
+        if distance >= -float(extra_radius):
+            return True
+        for center in shape.get("points_of_interest", []):
+            if math.hypot(float(x) - center[0], float(y) - center[1]) <= float(extra_radius):
+                return True
+        return False
 
     if kind == "compound":
         for start, end, radius in shape.get("segments", []):
@@ -354,6 +363,7 @@ def _fallback_part_shapes(detection: dict[str, Any]) -> dict[str, dict[str, Any]
         "upper body": {
             "kind": "polygon",
             "points": upper_polygon,
+            "points_of_interest": [(x1 + width * 0.5, y1 + height * 0.32)],
             "area": float((x2 - x1) * (mid_y - y1)),
         },
         "lower body": {
@@ -362,6 +372,30 @@ def _fallback_part_shapes(detection: dict[str, Any]) -> dict[str, dict[str, Any]
             "area": float((x2 - x1) * (y2 - mid_y)),
         },
     }
+
+
+def _chest_point(
+    left_shoulder: tuple[float, float] | None,
+    right_shoulder: tuple[float, float] | None,
+    left_hip: tuple[float, float] | None,
+    right_hip: tuple[float, float] | None,
+) -> tuple[float, float] | None:
+    if left_shoulder is None or right_shoulder is None:
+        return None
+    shoulder_mid = (
+        (left_shoulder[0] + right_shoulder[0]) * 0.5,
+        (left_shoulder[1] + right_shoulder[1]) * 0.5,
+    )
+    if left_hip is None or right_hip is None:
+        return shoulder_mid
+    hip_mid = (
+        (left_hip[0] + right_hip[0]) * 0.5,
+        (left_hip[1] + right_hip[1]) * 0.5,
+    )
+    return (
+        shoulder_mid[0] * 0.65 + hip_mid[0] * 0.35,
+        shoulder_mid[1] * 0.65 + hip_mid[1] * 0.35,
+    )
 
 
 def _segment_length(start: tuple[float, float], end: tuple[float, float]) -> float:

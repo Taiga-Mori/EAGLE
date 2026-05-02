@@ -3,11 +3,8 @@
   "media_path": "/Users/taigamori/Works/EAGLE/sample/book.mp4",
   "media_mtime_ns": 1777365481467474151,
   "det_thresh": 0.5,
-  "yolo_object_model": "yolo26x",
-  "object_stride": 1,
-  "object_smoothing_window": 5,
-  "person_detection_source": "pose",
-  "includes_non_person_detections": true,
+  "stride": 1,
+  "smoothing_window": 5,
   "tracker_config": {
     "tracker_type": "botsort",
     "track_high_thresh": 0.25,
@@ -21,5 +18,8 @@
     "appearance_thresh": 0.8,
     "with_reid": false,
     "model": "auto"
-  }
+  },
+  "detection_stage": "objects",
+  "backend": "yolo26x",
+  "includes_non_person_detections": true
 }

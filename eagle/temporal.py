@@ -92,6 +92,8 @@ class ObjectTrackSmoother:
             return pd.DataFrame(columns=OBJECT_COLUMNS)
         if media_type == "image":
             output = pd.DataFrame(raw_rows)
+            if "object_detected" not in output.columns:
+                output["object_detected"] = True
             if "source" not in output.columns:
                 output["source"] = "detect"
             if "pose_keypoints" not in output.columns:
@@ -103,6 +105,7 @@ class ObjectTrackSmoother:
             row.pop("yolo_idx", None)
 
         detections = pd.DataFrame(raw_rows).sort_values(["track_id", "frame_idx"])
+        detections["object_detected"] = True
         smoothed_groups = []
         bbox_cols = ["x1", "y1", "x2", "y2"]
         extra_cols = [column for column in ["source", "pose_keypoints"] if column in detections.columns]
@@ -114,6 +117,7 @@ class ObjectTrackSmoother:
             frame_range = range(int(group["frame_idx"].min()), int(group["frame_idx"].max()) + 1)
             group = group.set_index("frame_idx").reindex(frame_range)
             group["track_id"] = str(track_id)
+            group["object_detected"] = group["object_detected"].where(group["object_detected"].notna(), False).astype(bool)
             classes = group["cls"].dropna()
             if classes.empty:
                 continue
@@ -139,6 +143,7 @@ class ObjectTrackSmoother:
         for column in ["frame_idx", "x1", "y1", "x2", "y2"]:
             output[column] = output[column].round().astype(int)
         output["track_id"] = output["track_id"].astype(str)
+        output["object_detected"] = output["object_detected"].where(output["object_detected"].notna(), False).astype(bool)
         output["conf"] = output["conf"].astype(float)
         if "source" not in output.columns:
             output["source"] = "detect"
@@ -286,7 +291,6 @@ class GazeTemporalProcessor:
                 dense_series[frame_idx] = sparse_faces[next_idx][1]
                 continue
             if next_idx is None:
-                dense_series[frame_idx] = sparse_faces[prev_idx][1]
                 continue
 
             prev_frame, prev_face = sparse_faces[prev_idx]

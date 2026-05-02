@@ -7,14 +7,19 @@ import yaml
 
 from .constants import (
     COCO_OBJECT_CLASSES,
-    DEFAULT_YOLO_OBJECT_MODEL,
+    DEFAULT_GAZE_DETECTION_BACKEND,
+    DEFAULT_HEAD_POSE_DETECTION_BACKEND,
+    DEFAULT_OBJECT_DETECTION_BACKEND,
+    DEFAULT_PERSON_DETECTION_BACKEND,
     FACE_DETECTION_BACKENDS,
     GAZE_POINT_METHODS,
+    GAZE_DETECTION_BACKENDS,
+    HEAD_POSE_DETECTION_BACKENDS,
     IMAGE_EXTENSIONS,
-    OFFSCREEN_DIRECTION_BACKENDS,
+    OBJECT_DETECTION_BACKENDS,
+    PERSON_DETECTION_BACKENDS,
     VIDEO_EXTENSIONS,
     VISUALIZATION_MODES,
-    YOLO_OBJECT_MODELS,
 )
 from .types import AppPaths, MediaContext, PipelineConfig
 
@@ -58,36 +63,50 @@ class ConfigManager:
         self,
         input_path: Path | str,
         output_dir: Path | str,
+        person_target_fps: float | None,
         object_target_fps: float | None,
+        face_target_fps: float | None,
         gaze_target_fps: float | None,
-        det_thresh: float,
+        head_pose_target_fps: float | None,
+        person_det_thresh: float,
+        object_det_thresh: float,
+        face_det_thresh: float,
+        gaze_det_thresh: float,
         device: str,
-        yolo_object_model: str,
+        person_detection_backend: str,
+        object_detection_backend: str,
+        face_detection_backend: str,
+        gaze_detection_backend: str,
+        head_pose_detection_backend: str,
         updates: dict[str, Any] | None,
         visualization_mode: str,
         heatmap_alpha: float,
-        face_detection_backend: str,
-        offscreen_direction_backend: str,
         gaze_point_method: str,
         gaze_target_radius: int,
         person_part_distance_scale: float,
+        person_part_min_conf: float,
+        person_smoothing_window: int,
         object_smoothing_window: int,
         face_smoothing_window: int,
         gaze_smoothing_window: int,
         selected_object_classes: list[str] | None,
+        reuse_cached_persons: bool,
         reuse_cached_objects: bool,
+        reuse_cached_faces: bool,
         reuse_cached_gaze: bool,
-        force_reuse_cached_objects: bool,
-        force_reuse_cached_gaze: bool,
     ) -> PipelineConfig:
         if visualization_mode not in VISUALIZATION_MODES:
             raise ValueError(f"visualization_mode must be one of {sorted(VISUALIZATION_MODES)}")
         if face_detection_backend not in FACE_DETECTION_BACKENDS:
             raise ValueError(f"face_detection_backend must be one of {sorted(FACE_DETECTION_BACKENDS)}")
-        if offscreen_direction_backend not in OFFSCREEN_DIRECTION_BACKENDS:
-            raise ValueError(f"offscreen_direction_backend must be one of {sorted(OFFSCREEN_DIRECTION_BACKENDS)}")
-        if yolo_object_model not in YOLO_OBJECT_MODELS:
-            raise ValueError(f"yolo_object_model must be one of {sorted(YOLO_OBJECT_MODELS)}")
+        if person_detection_backend not in PERSON_DETECTION_BACKENDS:
+            raise ValueError(f"person_detection_backend must be one of {sorted(PERSON_DETECTION_BACKENDS)}")
+        if object_detection_backend not in OBJECT_DETECTION_BACKENDS:
+            raise ValueError(f"object_detection_backend must be one of {sorted(OBJECT_DETECTION_BACKENDS)}")
+        if gaze_detection_backend not in GAZE_DETECTION_BACKENDS:
+            raise ValueError(f"gaze_detection_backend must be one of {sorted(GAZE_DETECTION_BACKENDS)}")
+        if head_pose_detection_backend not in HEAD_POSE_DETECTION_BACKENDS:
+            raise ValueError(f"head_pose_detection_backend must be one of {sorted(HEAD_POSE_DETECTION_BACKENDS)}")
         if not 0.0 <= heatmap_alpha <= 1.0:
             raise ValueError("heatmap_alpha must be between 0.0 and 1.0")
         if gaze_point_method not in GAZE_POINT_METHODS:
@@ -96,6 +115,10 @@ class ConfigManager:
             raise ValueError("gaze_target_radius must be greater than or equal to 0")
         if person_part_distance_scale <= 0:
             raise ValueError("person_part_distance_scale must be greater than 0")
+        if not 0.0 <= person_part_min_conf <= 1.0:
+            raise ValueError("person_part_min_conf must be between 0.0 and 1.0")
+        if person_smoothing_window < 1:
+            raise ValueError("person_smoothing_window must be at least 1")
         if object_smoothing_window < 1:
             raise ValueError("object_smoothing_window must be at least 1")
         if face_smoothing_window < 1:
@@ -107,28 +130,38 @@ class ConfigManager:
         return PipelineConfig(
             media_path=Path(input_path),
             output_dir=Path(output_dir),
+            person_target_fps=0.0 if person_target_fps is None else float(person_target_fps),
             object_target_fps=0.0 if object_target_fps is None else float(object_target_fps),
+            face_target_fps=0.0 if face_target_fps is None else float(face_target_fps),
             gaze_target_fps=0.0 if gaze_target_fps is None else float(gaze_target_fps),
-            det_thresh=float(det_thresh),
+            head_pose_target_fps=0.0 if head_pose_target_fps is None else float(head_pose_target_fps),
+            person_det_thresh=float(person_det_thresh),
+            object_det_thresh=float(object_det_thresh),
+            face_det_thresh=float(face_det_thresh),
+            gaze_det_thresh=float(gaze_det_thresh),
             device=device,
-            yolo_object_model=yolo_object_model or DEFAULT_YOLO_OBJECT_MODEL,
+            person_detection_backend=person_detection_backend or DEFAULT_PERSON_DETECTION_BACKEND,
+            object_detection_backend=object_detection_backend or DEFAULT_OBJECT_DETECTION_BACKEND,
+            gaze_detection_backend=gaze_detection_backend or DEFAULT_GAZE_DETECTION_BACKEND,
+            head_pose_detection_backend=head_pose_detection_backend or DEFAULT_HEAD_POSE_DETECTION_BACKEND,
             tracker_updates=dict(updates or {}),
             media_type=self.detect_media_type(Path(input_path)),
             visualization_mode=visualization_mode,
             heatmap_alpha=float(heatmap_alpha),
             face_detection_backend=face_detection_backend,
-            offscreen_direction_backend=offscreen_direction_backend,
             gaze_point_method=gaze_point_method,
             gaze_target_radius=int(gaze_target_radius),
             person_part_distance_scale=float(person_part_distance_scale),
+            person_part_min_conf=float(person_part_min_conf),
+            person_smoothing_window=int(person_smoothing_window),
             object_smoothing_window=int(object_smoothing_window),
             face_smoothing_window=int(face_smoothing_window),
             gaze_smoothing_window=int(gaze_smoothing_window),
             selected_object_classes=normalized_selected_classes,
+            reuse_cached_persons=bool(reuse_cached_persons),
             reuse_cached_objects=bool(reuse_cached_objects),
+            reuse_cached_faces=bool(reuse_cached_faces),
             reuse_cached_gaze=bool(reuse_cached_gaze),
-            force_reuse_cached_objects=bool(force_reuse_cached_objects),
-            force_reuse_cached_gaze=bool(force_reuse_cached_gaze),
         )
 
     def normalize_selected_object_classes(self, selected_object_classes: list[str] | None) -> list[str]:
@@ -177,12 +210,21 @@ class ConfigManager:
                 raise FileNotFoundError(f"Could not open image: {config.media_path}")
             total_frames = 1
             fps = 1.0
+            person_target_fps = 1.0
+            person_stride = 1
+            person_frame_idx = [0]
             object_target_fps = 1.0
             object_stride = 1
             object_frame_idx = [0]
+            face_target_fps = 1.0
+            face_stride = 1
+            face_frame_idx = [0]
             gaze_target_fps = 1.0
             gaze_stride = 1
             gaze_frame_idx = [0]
+            head_pose_target_fps = 1.0
+            head_pose_stride = 1
+            head_pose_frame_idx = [0]
         else:
             capture = cv2.VideoCapture(str(config.media_path))
             if not capture.isOpened():
@@ -193,17 +235,32 @@ class ConfigManager:
             if total_frames <= 0 or fps <= 0:
                 raise RuntimeError(f"Invalid video metadata for {config.media_path}")
 
+            person_target_fps = config.person_target_fps or fps
             object_target_fps = config.object_target_fps or fps
-            gaze_target_fps = config.gaze_target_fps or object_target_fps
+            face_target_fps = config.face_target_fps or person_target_fps
+            gaze_target_fps = config.gaze_target_fps or face_target_fps
+            head_pose_target_fps = config.head_pose_target_fps or gaze_target_fps
+            if person_target_fps <= 0:
+                raise ValueError("person_target_fps must be greater than 0")
             if object_target_fps <= 0:
                 raise ValueError("object_target_fps must be greater than 0")
+            if face_target_fps <= 0:
+                raise ValueError("face_target_fps must be greater than 0")
             if gaze_target_fps <= 0:
                 raise ValueError("gaze_target_fps must be greater than 0")
+            if head_pose_target_fps <= 0:
+                raise ValueError("head_pose_target_fps must be greater than 0")
 
+            person_stride = max(1, round(fps / person_target_fps))
             object_stride = max(1, round(fps / object_target_fps))
+            face_stride = max(1, round(fps / face_target_fps))
             gaze_stride = max(1, round(fps / gaze_target_fps))
+            head_pose_stride = max(1, round(fps / head_pose_target_fps))
+            person_frame_idx = list(range(0, total_frames, person_stride))
             object_frame_idx = list(range(0, total_frames, object_stride))
+            face_frame_idx = list(range(0, total_frames, face_stride))
             gaze_frame_idx = list(range(0, total_frames, gaze_stride))
+            head_pose_frame_idx = list(range(0, total_frames, head_pose_stride))
 
         temp_dir = config.output_dir / "temp"
         if temp_dir.exists():
@@ -220,6 +277,8 @@ class ConfigManager:
             media_type=config.media_type,
             output_dir=config.output_dir,
             temp_dir=temp_dir,
+            persons_path=config.output_dir / "persons.csv",
+            persons_meta_path=config.output_dir / ".persons_meta.json",
             objects_path=config.output_dir / "objects.csv",
             objects_meta_path=config.output_dir / ".objects_meta.json",
             faces_path=config.output_dir / "faces.csv",
@@ -232,12 +291,21 @@ class ConfigManager:
             heatmap_dir=heatmap_dir,
             fps=fps,
             total_frames=total_frames,
+            person_target_fps=person_target_fps,
+            person_stride=person_stride,
+            person_frame_idx=person_frame_idx,
             object_target_fps=object_target_fps,
             object_stride=object_stride,
             object_frame_idx=object_frame_idx,
+            face_target_fps=face_target_fps,
+            face_stride=face_stride,
+            face_frame_idx=face_frame_idx,
             gaze_target_fps=gaze_target_fps,
             gaze_stride=gaze_stride,
             gaze_frame_idx=gaze_frame_idx,
+            head_pose_target_fps=head_pose_target_fps,
+            head_pose_stride=head_pose_stride,
+            head_pose_frame_idx=head_pose_frame_idx,
         )
 
     def count_readable_frames(self, media_path: Path) -> int:

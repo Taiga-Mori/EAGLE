@@ -28,28 +28,38 @@ class PipelineConfig:
 
     media_path: Path
     output_dir: Path
+    person_target_fps: float
     object_target_fps: float
+    face_target_fps: float
     gaze_target_fps: float
-    det_thresh: float
+    head_pose_target_fps: float
+    person_det_thresh: float
+    object_det_thresh: float
+    face_det_thresh: float
+    gaze_det_thresh: float
     device: str
-    yolo_object_model: str
+    person_detection_backend: str
+    object_detection_backend: str
+    gaze_detection_backend: str
+    head_pose_detection_backend: str
     tracker_updates: dict[str, Any]
     media_type: str
     visualization_mode: str
     heatmap_alpha: float
     face_detection_backend: str
-    offscreen_direction_backend: str
     gaze_point_method: str
     gaze_target_radius: int
     person_part_distance_scale: float
+    person_part_min_conf: float
+    person_smoothing_window: int
     object_smoothing_window: int
     face_smoothing_window: int
     gaze_smoothing_window: int
     selected_object_classes: list[str]
+    reuse_cached_persons: bool
     reuse_cached_objects: bool
+    reuse_cached_faces: bool
     reuse_cached_gaze: bool
-    force_reuse_cached_objects: bool
-    force_reuse_cached_gaze: bool
 
 
 @dataclass
@@ -60,6 +70,8 @@ class MediaContext:
     media_type: str
     output_dir: Path
     temp_dir: Path
+    persons_path: Path
+    persons_meta_path: Path
     objects_path: Path
     objects_meta_path: Path
     faces_path: Path
@@ -72,12 +84,21 @@ class MediaContext:
     heatmap_dir: Path
     fps: float
     total_frames: int
+    person_target_fps: float
+    person_stride: int
+    person_frame_idx: list[int]
     object_target_fps: float
     object_stride: int
     object_frame_idx: list[int]
+    face_target_fps: float
+    face_stride: int
+    face_frame_idx: list[int]
     gaze_target_fps: float
     gaze_stride: int
     gaze_frame_idx: list[int]
+    head_pose_target_fps: float
+    head_pose_stride: int
+    head_pose_frame_idx: list[int]
 
 
 @dataclass
@@ -111,10 +132,6 @@ class GazeRecord:
 
     frame_idx: int
     track_id: str
-    raw_gaze_detected: bool
-    raw_inout: float | None
-    raw_x_gaze: int | None
-    raw_y_gaze: int | None
     gaze_detected: bool
     inout: float | None
     x_gaze: int | None
