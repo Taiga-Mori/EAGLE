@@ -105,7 +105,7 @@ If first-run loading fails, check:
 ## App Workflow
 1. Launch the app with `python app.py`.
 2. Set `Input file`:
-   - macOS: click `Browse`.
+   - macOS/Windows: click `Browse`.
    - Linux/Docker: use `Container File Browser` or type a mounted path.
 3. Select one input image or video.
 4. Confirm the detected media type.
@@ -128,7 +128,7 @@ Output directory behavior:
 
 ### Basic Settings
 - `Input file`
-  - macOS: read-only field populated by `Browse`.
+  - macOS/Windows: editable field that can be populated by `Browse`.
   - Linux/Docker: editable field (manual path entry supported).
 - `Output folder name`
   - Folder created next to the input file.

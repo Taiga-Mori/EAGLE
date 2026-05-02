@@ -126,8 +126,33 @@ def reset_to_start(st) -> None:
 
 
 def browse_input_file() -> tuple[Path | None, str | None]:
+    if sys.platform == "win32":
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            selected = filedialog.askopenfilename(
+                title="Select input image or video",
+                filetypes=[
+                    (
+                        "Media files",
+                        "*.jpg *.jpeg *.png *.bmp *.tif *.tiff *.webp *.mp4 *.mov *.avi *.mkv *.webm *.m4v",
+                    ),
+                    ("All files", "*.*"),
+                ],
+            )
+            root.destroy()
+        except Exception as exc:
+            return None, str(exc)
+        if not selected:
+            return None, "No file was selected."
+        return Path(selected), None
+
     if sys.platform != "darwin":
-        return None, "Native file browsing is only available on macOS."
+        return None, "Native file browsing is only available on macOS and Windows."
     try:
         result = subprocess.run(
             [
@@ -361,7 +386,7 @@ def main() -> None:
                 f"You can still paste a path or use the built-in file browser below.\n\nDetails: {browse_error_message}"
             )
 
-        if sys.platform != "darwin":
+        if sys.platform not in {"darwin", "win32"}:
             st.caption("Linux containers do not support the native Browse dialog. Enter a mounted path manually.")
 
         input_path = Path(input_path_str) if input_path_str else None

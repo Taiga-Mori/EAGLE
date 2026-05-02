@@ -104,7 +104,7 @@ Si falla la carga inicial, comprueba:
 ## Flujo de trabajo de la aplicación
 1. Inicia la app con `python app.py`.
 2. Configura `Input file`:
-   - macOS: haz clic en `Browse`.
+   - macOS/Windows: haz clic en `Browse`.
    - Linux/Docker: usa `Container File Browser` o escribe una ruta montada.
 3. Selecciona una imagen o video de entrada.
 4. Confirma el tipo de medio detectado.
@@ -127,7 +127,7 @@ Comportamiento del directorio de salida:
 
 ### Basic Settings
 - `Input file`
-  - macOS: campo de solo lectura rellenado por `Browse`.
+  - macOS/Windows: campo editable que también puede rellenarse con `Browse`.
   - Linux/Docker: campo editable, con entrada manual de ruta.
 - `Output folder name`
   - Carpeta creada junto al archivo de entrada.

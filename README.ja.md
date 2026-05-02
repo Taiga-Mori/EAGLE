@@ -104,7 +104,7 @@ venv/bin/streamlit run app.py
 ## アプリのワークフロー
 1. `python app.py` でアプリを起動します。
 2. `Input file` を設定します。
-   - macOS: `Browse` をクリックします。
+   - macOS/Windows: `Browse` をクリックします。
    - Linux/Docker: `Container File Browser` を使うか、マウント済みパスを入力します。
 3. 入力画像または動画を 1 つ選択します。
 4. 検出されたメディア種別を確認します。
@@ -127,7 +127,7 @@ venv/bin/streamlit run app.py
 
 ### Basic Settings
 - `Input file`
-  - macOS: `Browse` によってセットされる読み取り専用欄です。
+  - macOS/Windows: 編集可能な欄で、`Browse` からもセットできます。
   - Linux/Docker: 編集可能な欄です（手入力でパス指定できます）。
 - `Output folder name`
   - 入力ファイルの隣に作られるフォルダ名です。

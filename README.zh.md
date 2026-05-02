@@ -104,7 +104,7 @@ venv/bin/streamlit run app.py
 ## 应用工作流
 1. 使用 `python app.py` 启动应用。
 2. 设置 `Input file`：
-   - macOS：点击 `Browse`。
+   - macOS/Windows：点击 `Browse`。
    - Linux/Docker：使用 `Container File Browser`，或输入已挂载路径。
 3. 选择一个输入图像或视频。
 4. 确认检测到的媒体类型。
@@ -127,7 +127,7 @@ venv/bin/streamlit run app.py
 
 ### Basic Settings
 - `Input file`
-  - macOS：由 `Browse` 填入的只读字段。
+  - macOS/Windows：可编辑字段，也可以由 `Browse` 填入。
   - Linux/Docker：可编辑字段（支持手动输入路径）。
 - `Output folder name`
   - 在输入文件旁边创建的文件夹名称。
