@@ -31,23 +31,24 @@ class AnnotationExporter:
     def _make_point_video(self, context: MediaContext) -> Path:
         silent_video = context.output_dir / "temp.mp4"
         output_video = context.output_dir / "all_points.mp4"
-        subprocess.run(
+        frame_name_width = len(str(context.total_frames - 1))
+        self._run_ffmpeg(
             [
                 str(self.paths.ffmpeg_path),
                 "-y",
                 "-framerate",
                 str(context.fps),
-                "-pattern_type",
-                "glob",
+                "-start_number",
+                "0",
                 "-i",
-                str(context.temp_dir / "*.jpg"),
+                str(context.temp_dir / f"%0{frame_name_width}d.jpg"),
                 "-c:v",
                 "libx264",
                 "-pix_fmt",
                 "yuv420p",
                 str(silent_video),
             ],
-            check=True,
+            "creating the annotated point video",
         )
 
         merge_command = [
@@ -67,7 +68,7 @@ class AnnotationExporter:
         else:
             merge_command.append("-an")
         merge_command.append(str(output_video))
-        subprocess.run(merge_command, check=True)
+        self._run_ffmpeg(merge_command, "merging the original audio into the annotated point video")
         silent_video.unlink(missing_ok=True)
         shutil.rmtree(context.temp_dir, ignore_errors=True)
         return output_video
@@ -99,23 +100,23 @@ class AnnotationExporter:
                 continue
             silent_video = person_dir / "temp.mp4"
             output_video = context.output_dir / f"{person_dir.name}_heatmap.mp4"
-            subprocess.run(
+            self._run_ffmpeg(
                 [
                     str(self.paths.ffmpeg_path),
                     "-y",
                     "-framerate",
                     str(context.fps),
-                    "-pattern_type",
-                    "glob",
+                    "-start_number",
+                    "0",
                     "-i",
-                    str(person_dir / "*.jpg"),
+                    str(person_dir / "%06d.jpg"),
                     "-c:v",
                     "libx264",
                     "-pix_fmt",
                     "yuv420p",
                     str(silent_video),
                 ],
-                check=True,
+                f"creating the heatmap video for {person_dir.name}",
             )
             silent_video.replace(output_video)
             shutil.rmtree(person_dir, ignore_errors=True)
@@ -352,3 +353,47 @@ class AnnotationExporter:
             return int(capture.get(audio_prop)) > 0
         finally:
             capture.release()
+
+    def _run_ffmpeg(self, command: list[str], purpose: str) -> None:
+        try:
+            subprocess.run(command, check=True, capture_output=True, text=True)
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                f"Failed while {purpose} because ffmpeg was not found.\n"
+                f"Expected ffmpeg path: {self.paths.ffmpeg_path}"
+            ) from exc
+        except subprocess.CalledProcessError as exc:
+            return_code = int(exc.returncode)
+            unsigned_code = return_code & 0xFFFFFFFF
+            fallback_command = self._ffmpeg_path_fallback_command(command)
+            if unsigned_code == 0xC0000135 and fallback_command is not None:
+                try:
+                    subprocess.run(fallback_command, check=True, capture_output=True, text=True)
+                    return
+                except subprocess.CalledProcessError:
+                    pass
+            stderr = (exc.stderr or "").strip()
+            stdout = (exc.stdout or "").strip()
+            details = stderr or stdout or "ffmpeg did not print an error message."
+            dll_hint = ""
+            if unsigned_code == 0xC0000135:
+                dll_hint = (
+                    "\n\nOn Windows, exit code 0xC0000135 usually means ffmpeg.exe could not start because "
+                    "a required DLL was not found. Use a static Windows ffmpeg build, or place all required "
+                    "ffmpeg DLLs next to ffmpeg.exe."
+                )
+            raise RuntimeError(
+                f"ffmpeg failed while {purpose}.\n"
+                f"Exit code: {return_code} (0x{unsigned_code:08X})\n"
+                f"Command: {' '.join(command)}\n"
+                f"Details: {details}"
+                f"{dll_hint}"
+            ) from exc
+
+    def _ffmpeg_path_fallback_command(self, command: list[str]) -> list[str] | None:
+        fallback_ffmpeg = shutil.which("ffmpeg")
+        if fallback_ffmpeg is None:
+            return None
+        if Path(fallback_ffmpeg).resolve() == Path(command[0]).resolve():
+            return None
+        return [fallback_ffmpeg, *command[1:]]
