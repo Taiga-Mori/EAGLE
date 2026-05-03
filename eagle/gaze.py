@@ -383,11 +383,37 @@ class FaceGazeEstimator:
             head_pose_detection_backend,
             progress_bar,
         )
+        required_offscreen_frames = self._required_offscreen_frames_by_track(
+            face_maps_by_frame,
+            dense_gaze_by_frame,
+            det_thresh,
+        )
         self._update_progress(progress_bar, 0, 1, "Smoothing off-screen directions...")
         offscreen_directions_by_frame, offscreen_angles_by_frame = self._smooth_offscreen_estimates(
             offscreen_estimates_by_frame,
             gaze_smoothing_window,
+            required_offscreen_frames,
         )
+        missing_offscreen_frames = self._missing_offscreen_frames(
+            required_offscreen_frames,
+            offscreen_directions_by_frame,
+        )
+        if missing_offscreen_frames:
+            fallback_estimates = self._collect_missing_offscreen_estimates_video(
+                context,
+                face_maps_by_frame,
+                dense_gaze_by_frame,
+                det_thresh,
+                device,
+                head_pose_detection_backend,
+                missing_offscreen_frames,
+            )
+            self._merge_offscreen_estimates(offscreen_estimates_by_frame, fallback_estimates)
+            offscreen_directions_by_frame, offscreen_angles_by_frame = self._smooth_offscreen_estimates(
+                offscreen_estimates_by_frame,
+                gaze_smoothing_window,
+                required_offscreen_frames,
+            )
         self._update_progress(progress_bar, 1, 1, "Smoothing off-screen directions...")
         self._render_video_outputs(
             context,
@@ -463,6 +489,7 @@ class FaceGazeEstimator:
         self,
         estimates_by_frame: dict[int, dict[str, dict[str, float | str]]],
         window: int,
+        required_frames_by_track: dict[str, list[int]] | None = None,
     ) -> tuple[dict[int, dict[str, str]], dict[int, dict[str, tuple[float, float]]]]:
         directions_by_frame: dict[int, dict[str, str]] = {}
         angles_by_frame: dict[int, dict[str, tuple[float, float]]] = {}
@@ -490,7 +517,22 @@ class FaceGazeEstimator:
 
         estimate_df = pd.DataFrame(rows).sort_values(["track_id", "frame_idx"])
         for track_id, group in estimate_df.groupby("track_id", sort=False):
-            smoothed = group.copy()
+            target_frames = sorted(set(required_frames_by_track.get(str(track_id), []))) if required_frames_by_track else []
+            if target_frames:
+                full_index = sorted(set(group["frame_idx"].astype(int)).union(target_frames))
+                smoothed = (
+                    group.set_index("frame_idx")[["yaw", "pitch"]]
+                    .reindex(full_index)
+                    .interpolate(method="index", limit_direction="both")
+                    .ffill()
+                    .bfill()
+                    .loc[target_frames]
+                    .reset_index()
+                    .rename(columns={"index": "frame_idx"})
+                )
+                smoothed["track_id"] = str(track_id)
+            else:
+                smoothed = group.copy()
             if window > 1:
                 smoothed["yaw"] = smoothed["yaw"].rolling(window=window, min_periods=1, center=True).mean()
                 smoothed["pitch"] = smoothed["pitch"].rolling(window=window, min_periods=1, center=True).mean()
@@ -502,6 +544,91 @@ class FaceGazeEstimator:
                 angles_by_frame.setdefault(frame_idx, {})[str(track_id)] = (yaw, pitch)
 
         return directions_by_frame, angles_by_frame
+
+    def _required_offscreen_frames_by_track(
+        self,
+        face_maps_by_frame: dict[int, dict[int, FaceDetection]],
+        dense_gaze_by_frame: dict[int, dict[int, GazePoint]],
+        det_thresh: float,
+    ) -> dict[str, list[int]]:
+        required: dict[str, list[int]] = {}
+        for frame_idx, gaze_map in dense_gaze_by_frame.items():
+            face_map = face_maps_by_frame.get(frame_idx, {})
+            for track_id, gaze in gaze_map.items():
+                if gaze is None or gaze.inout > det_thresh:
+                    continue
+                if face_map.get(track_id) is None and face_map.get(str(track_id)) is None:
+                    continue
+                required.setdefault(str(track_id), []).append(int(frame_idx))
+        return {track_id: sorted(set(frame_indices)) for track_id, frame_indices in required.items()}
+
+    def _missing_offscreen_frames(
+        self,
+        required_frames_by_track: dict[str, list[int]],
+        directions_by_frame: dict[int, dict[str, str]],
+    ) -> dict[int, set[str]]:
+        missing: dict[int, set[str]] = {}
+        for track_id, frame_indices in required_frames_by_track.items():
+            for frame_idx in frame_indices:
+                if track_id not in directions_by_frame.get(frame_idx, {}):
+                    missing.setdefault(frame_idx, set()).add(track_id)
+        return missing
+
+    def _collect_missing_offscreen_estimates_video(
+        self,
+        context: MediaContext,
+        face_maps_by_frame: dict[int, dict[int, FaceDetection]],
+        dense_gaze_by_frame: dict[int, dict[int, GazePoint]],
+        det_thresh: float,
+        device: str,
+        head_pose_detection_backend: str,
+        missing_frames: dict[int, set[str]],
+    ) -> dict[int, dict[str, dict[str, float | str]]]:
+        capture = cv2.VideoCapture(str(context.media_path))
+        if not capture.isOpened():
+            raise FileNotFoundError(f"Could not open video: {context.media_path}")
+
+        estimates_by_frame: dict[int, dict[str, dict[str, float | str]]] = {}
+        missing_frame_set = set(missing_frames)
+        try:
+            for frame_idx in range(context.total_frames):
+                ret, frame = capture.read()
+                if not ret:
+                    break
+                if frame_idx not in missing_frame_set:
+                    continue
+                wanted_track_ids = missing_frames[frame_idx]
+                face_map = {
+                    track_id: face
+                    for track_id, face in face_maps_by_frame.get(frame_idx, {}).items()
+                    if str(track_id) in wanted_track_ids
+                }
+                gaze_map = {
+                    track_id: gaze
+                    for track_id, gaze in dense_gaze_by_frame.get(frame_idx, {}).items()
+                    if str(track_id) in wanted_track_ids
+                }
+                estimates = self.detect_offscreen_directions(
+                    frame,
+                    face_map,
+                    gaze_map,
+                    det_thresh,
+                    device,
+                    head_pose_detection_backend,
+                )
+                if estimates:
+                    estimates_by_frame[frame_idx] = estimates
+        finally:
+            capture.release()
+        return estimates_by_frame
+
+    def _merge_offscreen_estimates(
+        self,
+        base: dict[int, dict[str, dict[str, float | str]]],
+        updates: dict[int, dict[str, dict[str, float | str]]],
+    ) -> None:
+        for frame_idx, frame_updates in updates.items():
+            base.setdefault(frame_idx, {}).update(frame_updates)
 
     def _collect_raw_faces_video(
         self,
@@ -1474,7 +1601,7 @@ class FaceGazeEstimator:
         crops: list[torch.Tensor] = []
         track_ids: list[str] = []
         for track_id, gaze in gaze_map.items():
-            if gaze is None or gaze.inout >= det_thresh:
+            if gaze is None or gaze.inout > det_thresh:
                 continue
             face = face_map.get(track_id)
             if face is None:
@@ -1609,7 +1736,7 @@ class FaceGazeEstimator:
     ) -> str:
         if gaze is None:
             return "out of frame"
-        if gaze.inout < det_thresh:
+        if gaze.inout <= det_thresh:
             return offscreen_direction or "out of frame"
 
         x_gaze = gaze.x_gaze
