@@ -1,4 +1,5 @@
 import json
+import shutil
 from dataclasses import asdict
 from pathlib import Path
 
@@ -730,10 +731,14 @@ class FaceGazeEstimator:
         expected_steps = max(1, context.total_frames)
         render_step = 0
         frame_name_width = len(str(context.total_frames - 1))
+        heatmap_track_ids: list[str] = []
         if heatmap_enabled:
+            shutil.rmtree(context.heatmap_dir, ignore_errors=True)
+            person_detections = object_df[object_df["cls"].astype(str) == "person"]
+            heatmap_track_ids = sorted({str(track_id) for track_id in person_detections["track_id"].dropna()})
             self._ensure_person_heatmap_dirs(
                 context,
-                object_df.drop_duplicates("track_id").to_dict(orient="records"),
+                person_detections.drop_duplicates("track_id").to_dict(orient="records"),
             )
 
         try:
@@ -761,6 +766,7 @@ class FaceGazeEstimator:
                     offscreen_direction_map = {}
                 offscreen_angle_map = offscreen_angles_by_frame.get(frame_idx, {}) if offscreen_angles_by_frame else {}
                 annotated_frame = frame.copy() if point_enabled else None
+                visible_person_detections: dict[str, dict] = {}
 
                 for detection in visible_objects:
                     track_id = str(detection["track_id"])
@@ -819,9 +825,8 @@ class FaceGazeEstimator:
                                 face,
                                 target_label,
                             )
-                    if heatmap_enabled:
-                        if detection["cls"] != "person":
-                            continue
+                    if heatmap_enabled and detection["cls"] == "person":
+                        visible_person_detections[track_id] = detection
                         if not point_enabled:
                             records.append(
                                 asdict(
@@ -835,6 +840,15 @@ class FaceGazeEstimator:
                                     )
                                 )
                             )
+
+                if heatmap_enabled:
+                    for track_id in heatmap_track_ids:
+                        detection = visible_person_detections.get(track_id)
+                        if detection is None:
+                            cv2.imwrite(str(self._person_heatmap_frame_path(context, track_id, frame_idx)), frame)
+                            continue
+                        face = face_map.get(track_id)
+                        gaze = gaze_map.get(track_id)
                         person_frame = frame.copy()
                         person_frame = self.annotator.draw_object(person_frame, detection)
                         person_frame = self.annotator.draw_person_keypoints(

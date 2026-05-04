@@ -96,26 +96,15 @@ class AnnotationExporter:
     def make_heatmap_videos(self, context: MediaContext) -> list[Path]:
         outputs: list[Path] = []
         for person_dir in sorted(path for path in context.heatmap_dir.iterdir() if path.is_dir()):
-            if not any(person_dir.glob("*.jpg")):
+            source_paths = sorted(person_dir.glob("*.jpg"))
+            if not source_paths:
                 continue
             silent_video = person_dir / "temp.mp4"
             output_video = context.output_dir / f"{person_dir.name}_heatmap.mp4"
-            self._run_ffmpeg(
-                [
-                    str(self.paths.ffmpeg_path),
-                    "-y",
-                    "-framerate",
-                    str(context.fps),
-                    "-start_number",
-                    "0",
-                    "-i",
-                    str(person_dir / "%06d.jpg"),
-                    "-c:v",
-                    "libx264",
-                    "-pix_fmt",
-                    "yuv420p",
-                    str(silent_video),
-                ],
+            self._make_image_list_video(
+                source_paths,
+                context.fps,
+                silent_video,
                 f"creating the heatmap video for {person_dir.name}",
             )
             silent_video.replace(output_video)
@@ -218,30 +207,34 @@ class AnnotationExporter:
         for track_id, group in target_df.groupby("track_id"):
             group = group.sort_values("frame_idx")
             start_frame = None
+            previous_frame = None
             previous_target = None
             for _, row in group.iterrows():
                 current_frame = int(row["frame_idx"])
                 current_target = str(row["target"])
                 if previous_target is None:
                     start_frame = current_frame
+                    previous_frame = current_frame
                     previous_target = current_target
                     continue
-                if current_target != previous_target:
+                has_frame_gap = previous_frame is not None and current_frame > previous_frame + 1
+                if has_frame_gap or current_target != previous_target:
                     segments.append(
                         {
                             "tier": self._gaze_tier_label(track_id),
                             "start_time": start_frame / context.fps,
-                            "end_time": current_frame / context.fps,
+                            "end_time": (previous_frame + 1) / context.fps,
                             "gaze": previous_target,
                         }
                     )
                     start_frame = current_frame
                     previous_target = current_target
+                previous_frame = current_frame
             segments.append(
                 {
                     "tier": self._gaze_tier_label(track_id),
                     "start_time": start_frame / context.fps,
-                    "end_time": (context.total_frames - 1) / context.fps,
+                    "end_time": (previous_frame + 1) / context.fps,
                     "gaze": previous_target,
                 }
             )
@@ -397,3 +390,37 @@ class AnnotationExporter:
         if Path(fallback_ffmpeg).resolve() == Path(command[0]).resolve():
             return None
         return [fallback_ffmpeg, *command[1:]]
+
+    def _make_image_list_video(self, source_paths: list[Path], fps: float, output_path: Path, purpose: str) -> None:
+        list_path = output_path.with_suffix(".frames.txt")
+        frame_duration = 1.0 / float(fps)
+        lines: list[str] = []
+        for source_path in source_paths:
+            escaped_path = str(source_path).replace("'", "'\\''")
+            lines.append(f"file '{escaped_path}'")
+            lines.append(f"duration {frame_duration:.10f}")
+        if source_paths:
+            escaped_path = str(source_paths[-1]).replace("'", "'\\''")
+            lines.append(f"file '{escaped_path}'")
+        list_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        try:
+            self._run_ffmpeg(
+                [
+                    str(self.paths.ffmpeg_path),
+                    "-y",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    str(list_path),
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    str(output_path),
+                ],
+                purpose,
+            )
+        finally:
+            list_path.unlink(missing_ok=True)
