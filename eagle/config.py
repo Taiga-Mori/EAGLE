@@ -1,3 +1,4 @@
+import subprocess
 import shutil
 from pathlib import Path
 from typing import Any
@@ -241,11 +242,12 @@ class ConfigManager:
 
     def build_media_context(self, config: PipelineConfig) -> MediaContext:
         config.output_dir.mkdir(parents=True, exist_ok=True)
+        media_path = config.media_path
 
         if config.media_type == "image":
-            image = cv2.imread(str(config.media_path))
+            image = cv2.imread(str(media_path))
             if image is None:
-                raise FileNotFoundError(f"Could not open image: {config.media_path}")
+                raise FileNotFoundError(f"Could not open image: {media_path}")
             total_frames = 1
             fps = 1.0
             person_target_fps = 1.0
@@ -264,14 +266,19 @@ class ConfigManager:
             head_pose_stride = 1
             head_pose_frame_idx = [0]
         else:
-            capture = cv2.VideoCapture(str(config.media_path))
+            if self.video_needs_progressive_normalization(media_path):
+                media_path = self.normalize_video_for_opencv(media_path, config.output_dir)
+
+            capture = cv2.VideoCapture(str(media_path))
             if not capture.isOpened():
-                raise FileNotFoundError(f"Could not open video: {config.media_path}")
+                raise FileNotFoundError(f"Could not open video: {media_path}")
             fps = float(capture.get(cv2.CAP_PROP_FPS))
+            metadata_total_frames = int(round(float(capture.get(cv2.CAP_PROP_FRAME_COUNT))))
             capture.release()
-            total_frames = self.count_readable_frames(config.media_path)
+            total_frames = self.count_readable_frames(media_path)
             if total_frames <= 0 or fps <= 0:
-                raise RuntimeError(f"Invalid video metadata for {config.media_path}")
+                raise RuntimeError(f"Invalid video metadata for {media_path}")
+            fps = self.resolve_effective_fps(fps, metadata_total_frames, total_frames, media_path)
 
             person_target_fps = config.person_target_fps or fps
             object_target_fps = config.object_target_fps or fps
@@ -311,7 +318,7 @@ class ConfigManager:
         heatmap_dir.mkdir(exist_ok=True)
 
         return MediaContext(
-            media_path=config.media_path,
+            media_path=media_path,
             media_type=config.media_type,
             output_dir=config.output_dir,
             temp_dir=temp_dir,
@@ -364,3 +371,120 @@ class ConfigManager:
             capture.release()
 
         return total_frames
+
+    def video_needs_progressive_normalization(self, media_path: Path) -> bool:
+        ffmpeg_path = self._ffmpeg_executable()
+        if ffmpeg_path is None:
+            return False
+        try:
+            result = subprocess.run(
+                [ffmpeg_path, "-hide_banner", "-i", str(media_path)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except Exception:
+            return False
+        probe_text = f"{result.stdout}\n{result.stderr}".lower()
+        interlaced_markers = (
+            "top first",
+            "bottom first",
+            "field_order=tt",
+            "field_order=bb",
+            "field_order=tb",
+            "field_order=bt",
+        )
+        return any(marker in probe_text for marker in interlaced_markers)
+
+    def normalize_video_for_opencv(self, media_path: Path, output_dir: Path) -> Path:
+        ffmpeg_path = self._ffmpeg_executable()
+        if ffmpeg_path is None:
+            print(
+                f"Interlaced input was detected, but ffmpeg is not available. Continuing with original video: {media_path}",
+                flush=True,
+            )
+            return media_path
+
+        normalized_path = output_dir / ".eagle_progressive_input.mp4"
+        if normalized_path.exists() and normalized_path.stat().st_mtime_ns >= media_path.stat().st_mtime_ns:
+            print(f"Using existing progressive working video: {normalized_path}", flush=True)
+            return normalized_path
+
+        print(
+            (
+                "Interlaced input detected. Creating a progressive working video for reliable OpenCV processing...\n"
+                f"  input: {media_path}\n"
+                f"  output: {normalized_path}"
+            ),
+            flush=True,
+        )
+        command = [
+            ffmpeg_path,
+            "-y",
+            "-i",
+            str(media_path),
+            "-vf",
+            "yadif=mode=send_frame",
+            "-c:v",
+            "libx264",
+            "-crf",
+            "18",
+            "-preset",
+            "veryfast",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(normalized_path),
+        ]
+        try:
+            subprocess.run(command, check=True)
+        except Exception as exc:
+            normalized_path.unlink(missing_ok=True)
+            raise RuntimeError(
+                "Failed to create a progressive working video for this interlaced input.\n"
+                f"Command: {' '.join(command)}\n"
+                f"Original error: {exc}"
+            ) from exc
+        return normalized_path
+
+    def _ffmpeg_executable(self) -> str | None:
+        if self.paths.ffmpeg_path.exists():
+            return str(self.paths.ffmpeg_path)
+        fallback = shutil.which("ffmpeg")
+        return fallback
+
+    def resolve_effective_fps(
+        self,
+        metadata_fps: float,
+        metadata_total_frames: int,
+        readable_total_frames: int,
+        media_path: Path,
+    ) -> float:
+        if metadata_fps <= 0 or metadata_total_frames <= 0 or readable_total_frames <= 0:
+            return metadata_fps
+        mismatch_ratio = abs(metadata_total_frames - readable_total_frames) / float(metadata_total_frames)
+        if mismatch_ratio < 0.05:
+            return metadata_fps
+
+        metadata_duration = metadata_total_frames / metadata_fps
+        if metadata_duration <= 0:
+            return metadata_fps
+        effective_fps = readable_total_frames / metadata_duration
+        if effective_fps <= 0:
+            return metadata_fps
+        print(
+            (
+                "Video metadata/readable-frame mismatch detected. "
+                f"media={media_path}, "
+                f"metadata_fps={metadata_fps:.6g}, "
+                f"metadata_total_frames={metadata_total_frames}, "
+                f"readable_total_frames={readable_total_frames}, "
+                f"effective_fps={effective_fps:.6g}. "
+                "Using effective_fps so annotation times and exported videos keep the source duration."
+            ),
+            flush=True,
+        )
+        return effective_fps
