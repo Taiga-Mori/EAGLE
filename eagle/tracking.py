@@ -28,12 +28,19 @@ class ObjectTracker:
         det_thresh: float,
         person_detection_backend: str,
         smoothing_window: int,
+        max_switch_gap: int,
         progress_bar=None,
     ) -> pd.DataFrame:
         raw_rows = self._run_person_detection(context, device, det_thresh, progress_bar)
         self._report_detection_coverage(context, raw_rows, "person")
         self._update_progress(progress_bar, 0, 1, "Interpolating and smoothing persons...")
-        detections = self.smoother.smooth(raw_rows, context.total_frames, smoothing_window, context.media_type)
+        detections = self.smoother.smooth(
+            raw_rows,
+            context.total_frames,
+            smoothing_window,
+            context.media_type,
+            max_switch_gap=max_switch_gap,
+        )
         self._update_progress(progress_bar, 1, 1, "Interpolating and smoothing persons...")
         self._update_progress(progress_bar, 0, 1, "Saving persons.csv...")
         detections.to_csv(context.persons_path, index=False)
@@ -48,6 +55,7 @@ class ObjectTracker:
                 "detection_stage": "persons",
                 "person_detection_source": "pose",
                 "backend": person_detection_backend,
+                "max_switch_gap": int(max_switch_gap),
             },
         )
         return detections

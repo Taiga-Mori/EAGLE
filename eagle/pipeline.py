@@ -77,6 +77,7 @@ class EAGLE:
         person_part_distance_scale: float = 0.10,
         person_part_min_conf: float = 0.0,
         person_smoothing_window: int = 5,
+        person_max_switch_gap: int = 15,
         object_smoothing_window: int = 5,
         face_smoothing_window: int = 5,
         gaze_smoothing_window: int = 5,
@@ -113,6 +114,7 @@ class EAGLE:
             person_part_distance_scale=person_part_distance_scale,
             person_part_min_conf=person_part_min_conf,
             person_smoothing_window=person_smoothing_window,
+            person_max_switch_gap=person_max_switch_gap,
             object_smoothing_window=object_smoothing_window,
             face_smoothing_window=face_smoothing_window,
             gaze_smoothing_window=gaze_smoothing_window,
@@ -150,6 +152,7 @@ class EAGLE:
                 config.person_det_thresh,
                 config.person_smoothing_window,
                 expected_stage="persons",
+                max_switch_gap=config.person_max_switch_gap,
                 backend=config.person_detection_backend,
             )
             if cached_persons is not None:
@@ -161,6 +164,7 @@ class EAGLE:
             det_thresh=config.person_det_thresh,
             person_detection_backend=config.person_detection_backend,
             smoothing_window=config.person_smoothing_window,
+            max_switch_gap=config.person_max_switch_gap,
             progress_bar=progress_bar,
         )
 
@@ -281,6 +285,7 @@ class EAGLE:
         det_thresh: float,
         smoothing_window: int,
         expected_stage: str,
+        max_switch_gap: int | None = None,
         backend: str | None = None,
     ):
         context = self._require_context()
@@ -307,6 +312,8 @@ class EAGLE:
         if int(meta.get("stride", -1)) != int(self._stage_stride(context, expected_stage)):
             return None
         if int(meta.get("smoothing_window", -1)) != int(smoothing_window):
+            return None
+        if max_switch_gap is not None and int(meta.get("max_switch_gap", -1)) != int(max_switch_gap):
             return None
         if backend is not None and str(meta.get("backend", "")) != str(backend):
             return None

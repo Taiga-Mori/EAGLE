@@ -52,6 +52,7 @@ class PipelineConfig:
     person_part_distance_scale: float
     person_part_min_conf: float
     person_smoothing_window: int
+    person_max_switch_gap: int
     object_smoothing_window: int
     face_smoothing_window: int
     gaze_smoothing_window: int

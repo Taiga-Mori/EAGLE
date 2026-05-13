@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import pandas as pd
+import json
 
 from .constants import OBJECT_COLUMNS
 from .types import FaceDetection, GazePoint
@@ -87,7 +88,14 @@ class GazePointResolver:
 class ObjectTrackSmoother:
     """Fill missing object frames and smooth track geometry."""
 
-    def smooth(self, raw_rows: list[dict], total_frames: int, window: int, media_type: str) -> pd.DataFrame:
+    def smooth(
+        self,
+        raw_rows: list[dict],
+        total_frames: int,
+        window: int,
+        media_type: str,
+        max_switch_gap: int = 0,
+    ) -> pd.DataFrame:
         if not raw_rows:
             return pd.DataFrame(columns=OBJECT_COLUMNS)
         if media_type == "image":
@@ -114,6 +122,10 @@ class ObjectTrackSmoother:
         for track_id, group in detections.groupby("track_id", sort=False):
             group = group.sort_values(["frame_idx", "conf"], ascending=[True, False])
             group = group.drop_duplicates(subset="frame_idx", keep="first")
+            if max_switch_gap > 0 and str(group["cls"].dropna().astype(str).mode().iloc[0]) == "person":
+                group = self._remove_short_switch_islands(group, max_switch_gap)
+                if group.empty:
+                    continue
             frame_range = range(int(group["frame_idx"].min()), int(group["frame_idx"].max()) + 1)
             group = group.set_index("frame_idx").reindex(frame_range)
             group["track_id"] = str(track_id)
@@ -128,7 +140,7 @@ class ObjectTrackSmoother:
                 non_null_sources = group["source"].dropna().astype(str)
                 group["source"] = str(non_null_sources.mode().iloc[0]) if not non_null_sources.empty else "detect"
             if "pose_keypoints" in extra_cols:
-                group["pose_keypoints"] = group["pose_keypoints"].ffill().bfill()
+                group["pose_keypoints"] = self._interpolate_pose_keypoints(group["pose_keypoints"], window)
             if window > 1:
                 group[bbox_cols] = group[bbox_cols].rolling(window=window, min_periods=1, center=True).mean()
                 group["conf"] = group["conf"].rolling(window=window, min_periods=1, center=True).mean()
@@ -150,6 +162,130 @@ class ObjectTrackSmoother:
         if "pose_keypoints" not in output.columns:
             output["pose_keypoints"] = None
         return output[OBJECT_COLUMNS]
+
+    def _interpolate_pose_keypoints(self, series: pd.Series, window: int) -> pd.Series:
+        parsed = [self._parse_pose_keypoints(value) for value in series.tolist()]
+        keypoint_count = max((len(points) for points in parsed), default=0)
+        if keypoint_count == 0:
+            return pd.Series([None] * len(series), index=series.index)
+
+        columns: dict[str, list[float]] = {}
+        for keypoint_index in range(keypoint_count):
+            for value_index, value_name in enumerate(["x", "y", "conf"]):
+                column = f"{keypoint_index}_{value_name}"
+                values: list[float] = []
+                for points in parsed:
+                    if keypoint_index >= len(points):
+                        values.append(np.nan)
+                        continue
+                    value = points[keypoint_index][value_index]
+                    values.append(float(value) if value is not None and np.isfinite(float(value)) else np.nan)
+                columns[column] = values
+
+        keypoint_df = pd.DataFrame(columns, index=series.index)
+        keypoint_df = keypoint_df.interpolate(method="linear", limit_direction="both")
+        if window > 1:
+            keypoint_df = keypoint_df.rolling(window=window, min_periods=1, center=True).mean()
+
+        output: list[str | None] = []
+        for row_index in keypoint_df.index:
+            keypoints: list[list[float | None]] = []
+            for keypoint_index in range(keypoint_count):
+                x = keypoint_df.at[row_index, f"{keypoint_index}_x"]
+                y = keypoint_df.at[row_index, f"{keypoint_index}_y"]
+                conf = keypoint_df.at[row_index, f"{keypoint_index}_conf"]
+                if pd.isna(x) or pd.isna(y):
+                    keypoints.append([None, None, None if pd.isna(conf) else float(conf)])
+                    continue
+                keypoints.append(
+                    [
+                        float(x),
+                        float(y),
+                        None if pd.isna(conf) else float(conf),
+                    ]
+                )
+            output.append(json.dumps(keypoints, ensure_ascii=False))
+        return pd.Series(output, index=series.index)
+
+    def _parse_pose_keypoints(self, value) -> list[list[float | None]]:
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return []
+        payload = value
+        if isinstance(value, str):
+            if not value.strip():
+                return []
+            try:
+                payload = json.loads(value)
+            except Exception:
+                return []
+        if not isinstance(payload, list):
+            return []
+
+        keypoints: list[list[float | None]] = []
+        for point in payload:
+            if not isinstance(point, (list, tuple)) or len(point) < 2:
+                keypoints.append([None, None, None])
+                continue
+            x = self._finite_or_none(point[0])
+            y = self._finite_or_none(point[1])
+            conf = self._finite_or_none(point[2]) if len(point) >= 3 else None
+            keypoints.append([x, y, conf])
+        return keypoints
+
+    def _finite_or_none(self, value) -> float | None:
+        if value is None:
+            return None
+        try:
+            numeric = float(value)
+        except Exception:
+            return None
+        return numeric if np.isfinite(numeric) else None
+
+    def _remove_short_switch_islands(self, group: pd.DataFrame, max_switch_gap: int) -> pd.DataFrame:
+        if len(group) < 5:
+            return group
+
+        ordered = group.sort_values("frame_idx").reset_index(drop=True)
+        centers = np.column_stack(
+            [
+                (ordered["x1"].astype(float).to_numpy() + ordered["x2"].astype(float).to_numpy()) / 2.0,
+                (ordered["y1"].astype(float).to_numpy() + ordered["y2"].astype(float).to_numpy()) / 2.0,
+            ]
+        )
+        widths = np.maximum(ordered["x2"].astype(float).to_numpy() - ordered["x1"].astype(float).to_numpy(), 1.0)
+        heights = np.maximum(ordered["y2"].astype(float).to_numpy() - ordered["y1"].astype(float).to_numpy(), 1.0)
+        diagonals = np.hypot(widths, heights)
+        frame_indices = ordered["frame_idx"].astype(int).to_numpy()
+
+        remove_positions: set[int] = set()
+        index = 1
+        while index < len(ordered) - 1:
+            best_end: int | None = None
+            for end in range(index, len(ordered) - 1):
+                if int(frame_indices[end] - frame_indices[index] + 1) > int(max_switch_gap):
+                    break
+                before = index - 1
+                after = end + 1
+                reference_diag = max(float(np.median([diagonals[before], diagonals[after]])), 1.0)
+                before_after_distance = float(np.linalg.norm(centers[before] - centers[after]))
+                if before_after_distance > reference_diag * 0.50:
+                    continue
+                anchor = (centers[before] + centers[after]) / 2.0
+                island_distances = np.linalg.norm(centers[index : end + 1] - anchor, axis=1)
+                if float(np.median(island_distances)) <= reference_diag * 0.75:
+                    continue
+                best_end = end
+
+            if best_end is None:
+                index += 1
+                continue
+            remove_positions.update(range(index, best_end + 1))
+            index = best_end + 1
+
+        if not remove_positions:
+            return group
+        kept = ordered.drop(index=sorted(remove_positions)).copy()
+        return kept.reset_index(drop=True)
 
 
 class GazeTemporalProcessor:

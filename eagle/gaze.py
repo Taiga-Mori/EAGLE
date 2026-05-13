@@ -1405,7 +1405,9 @@ class FaceGazeEstimator:
             if keypoint_summary is None:
                 continue
             for face in valid_faces:
-                score = self._score_face_person_match(face, keypoint_summary)
+                score = self._score_face_person_match(face, detection, keypoint_summary)
+                if score is None:
+                    continue
                 scored_pairs.append((score, str(detection["track_id"]), face))
 
         face_map: dict[int, FaceDetection] = {}
@@ -1507,44 +1509,55 @@ class FaceGazeEstimator:
         ys = [point[1] for point in points]
         return {
             "points": points,
-            "center": (float(np.mean(xs)), float(np.mean(ys))),
+            "center": (float((min(xs) + max(xs)) / 2.0), float((min(ys) + max(ys)) / 2.0)),
             "bbox": (float(min(xs)), float(min(ys)), float(max(xs)), float(max(ys))),
         }
 
-    def _score_face_person_match(self, face: dict, keypoint_summary: dict[str, object]) -> float:
+    def _score_face_person_match(
+        self,
+        face: dict,
+        person_detection: dict,
+        keypoint_summary: dict[str, object],
+    ) -> float | None:
         fx1, fy1, fx2, fy2 = map(float, face["bbox"])
         face_width = max(fx2 - fx1, 1.0)
         face_height = max(fy2 - fy1, 1.0)
         face_diag = float(np.hypot(face_width, face_height))
-        face_area = max(face_width * face_height, 1.0)
         face_center_x = (fx1 + fx2) / 2.0
         face_center_y = (fy1 + fy2) / 2.0
 
+        person_box = (
+            float(person_detection["x1"]),
+            float(person_detection["y1"]),
+            float(person_detection["x2"]),
+            float(person_detection["y2"]),
+        )
+        if self._box_overlap_ratio((fx1, fy1, fx2, fy2), person_box) < 0.90:
+            return None
+
         keypoint_center_x, keypoint_center_y = keypoint_summary["center"]
-        kx1, ky1, kx2, ky2 = keypoint_summary["bbox"]
-        keypoint_width = max(float(kx2 - kx1), 1.0)
-        keypoint_height = max(float(ky2 - ky1), 1.0)
-        keypoint_area = max(keypoint_width * keypoint_height, 1.0)
-        keypoint_diag = float(np.hypot(keypoint_width, keypoint_height))
-
         center_distance = float(np.hypot(keypoint_center_x - face_center_x, keypoint_center_y - face_center_y))
-        normalized_distance = center_distance / max(face_diag, keypoint_diag, 1.0)
+        max_center_distance = max(face_diag * 0.75, 1.0)
+        if center_distance > max_center_distance:
+            return None
+        return center_distance
 
-        margin_x = face_width * 0.20
-        margin_y = face_height * 0.20
-        points = keypoint_summary["points"]
-        outside_count = 0
-        for x, y in points:
-            if x < fx1 - margin_x or x > fx2 + margin_x or y < fy1 - margin_y or y > fy2 + margin_y:
-                outside_count += 1
-        outside_ratio = outside_count / max(len(points), 1)
-
-        expected_face_to_keypoint_ratio = 4.0
-        size_ratio = face_area / max(keypoint_area, 1.0)
-        size_penalty = abs(float(np.log(max(size_ratio, 1e-6) / expected_face_to_keypoint_ratio)))
-
-        detection_bonus = 0.15 * float(face.get("score", 0.0))
-        return normalized_distance + (1.5 * outside_ratio) + (0.2 * size_penalty) - detection_bonus
+    def _box_overlap_ratio(
+        self,
+        subject_box: tuple[float, float, float, float],
+        container_box: tuple[float, float, float, float],
+    ) -> float:
+        sx1, sy1, sx2, sy2 = subject_box
+        cx1, cy1, cx2, cy2 = container_box
+        subject_area = max((sx2 - sx1) * (sy2 - sy1), 1.0)
+        ix1 = max(sx1, cx1)
+        iy1 = max(sy1, cy1)
+        ix2 = min(sx2, cx2)
+        iy2 = min(sy2, cy2)
+        if ix2 <= ix1 or iy2 <= iy1:
+            return 0.0
+        intersection_area = (ix2 - ix1) * (iy2 - iy1)
+        return float(intersection_area / subject_area)
 
     def _pose_keypoints(self, detection: dict) -> list:
         raw_keypoints = detection.get("pose_keypoints")

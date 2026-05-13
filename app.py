@@ -10,8 +10,14 @@ import sys
 import time
 import webbrowser
 
+os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "8")
 import cv2
 import yaml
+
+try:
+    cv2.setLogLevel(0)
+except Exception:
+    pass
 
 from eagle import EAGLE
 from eagle.constants import (
@@ -465,6 +471,7 @@ def main() -> None:
             head_pose_target_fps = video_fps
 
             person_smoothing_window = int(st.session_state.get("person_smoothing_window", 5))
+            person_max_switch_gap = int(st.session_state.get("person_max_switch_gap", 15))
             object_smoothing_window = int(st.session_state.get("object_smoothing_window", 5))
             face_smoothing_window = int(st.session_state.get("face_smoothing_window", 5))
             gaze_smoothing_window = int(st.session_state.get("gaze_smoothing_window", 5))
@@ -499,6 +506,15 @@ def main() -> None:
                         min_value=1,
                         step=1,
                         value=int(st.session_state.get("person_smoothing_window", 5)),
+                    )
+                )
+                person_max_switch_gap = int(
+                    st.number_input(
+                        "Person max switch gap",
+                        min_value=0,
+                        step=1,
+                        value=int(st.session_state.get("person_max_switch_gap", 15)),
+                        help="Short person-track jumps up to this many frames are treated as ID-switch outliers before interpolation. Set 0 to disable.",
                     )
                 )
                 person_part_distance_scale = float(
@@ -806,6 +822,7 @@ def main() -> None:
         st.session_state.reuse_cached_gaze = reuse_cached_gaze
         st.session_state.selected_object_classes = selected_object_classes
         st.session_state.person_smoothing_window = person_smoothing_window
+        st.session_state.person_max_switch_gap = person_max_switch_gap
         st.session_state.object_smoothing_window = object_smoothing_window
         st.session_state.face_smoothing_window = face_smoothing_window
         st.session_state.gaze_smoothing_window = gaze_smoothing_window
@@ -877,6 +894,7 @@ def main() -> None:
                 person_part_distance_scale=st.session_state.person_part_distance_scale,
                 person_part_min_conf=st.session_state.person_part_min_conf,
                 person_smoothing_window=st.session_state.person_smoothing_window,
+                person_max_switch_gap=st.session_state.person_max_switch_gap,
                 object_smoothing_window=st.session_state.object_smoothing_window,
                 face_smoothing_window=st.session_state.face_smoothing_window,
                 gaze_smoothing_window=st.session_state.gaze_smoothing_window,

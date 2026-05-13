@@ -315,6 +315,7 @@ eagle.preprocess(
     device="cpu",
     visualization_mode="both",
     person_part_min_conf=0.0,
+    person_max_switch_gap=15,
 )
 results = eagle.run_all()
 ```
