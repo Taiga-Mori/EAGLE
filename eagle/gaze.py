@@ -1556,7 +1556,7 @@ class FaceGazeEstimator:
         if not face_points:
             return None
 
-        face_width = self._nose_fallback_face_width(nose, face_points)
+        face_width = self._nose_fallback_face_width(nose, face_points, detection)
         if face_width is None:
             return None
 
@@ -1596,15 +1596,25 @@ class FaceGazeEstimator:
         self,
         nose: tuple[float, float],
         face_points: dict[int, tuple[float, float]],
+        detection: dict,
     ) -> float | None:
+        person_width = max(float(detection["x2"]) - float(detection["x1"]), 1.0)
+        person_height = max(float(detection["y2"]) - float(detection["y1"]), 1.0)
+        min_face_width = max(12.0, person_width * 0.12, person_height * 0.07)
         left_eye = face_points.get(1)
         right_eye = face_points.get(2)
         left_ear = face_points.get(3)
         right_ear = face_points.get(4)
         if left_ear is not None and right_ear is not None:
-            return max(float(np.hypot(left_ear[0] - right_ear[0], left_ear[1] - right_ear[1])) * 1.15, 8.0)
+            return max(
+                float(np.hypot(left_ear[0] - right_ear[0], left_ear[1] - right_ear[1])) * 1.15,
+                min_face_width,
+            )
         if left_eye is not None and right_eye is not None:
-            return max(float(np.hypot(left_eye[0] - right_eye[0], left_eye[1] - right_eye[1])) * 3.20, 8.0)
+            return max(
+                float(np.hypot(left_eye[0] - right_eye[0], left_eye[1] - right_eye[1])) * 3.20,
+                min_face_width,
+            )
 
         distances = [
             float(np.hypot(point[0] - nose[0], point[1] - nose[1]))
@@ -1612,7 +1622,7 @@ class FaceGazeEstimator:
         ]
         if not distances:
             return None
-        return max(max(distances) * 3.00, 8.0)
+        return max(max(distances) * 3.00, min_face_width)
 
     def _score_face_person_match(
         self,
