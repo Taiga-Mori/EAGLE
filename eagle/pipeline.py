@@ -77,6 +77,7 @@ class EAGLE:
         gaze_target_radius: int = 15,
         person_part_distance_scale: float = 0.10,
         person_part_min_conf: float = 0.0,
+        face_fallback_min_size_scale: float = 1.0,
         person_smoothing_window: int = 5,
         person_max_switch_gap: int = 15,
         object_smoothing_window: int = 5,
@@ -114,6 +115,7 @@ class EAGLE:
             gaze_target_radius=gaze_target_radius,
             person_part_distance_scale=person_part_distance_scale,
             person_part_min_conf=person_part_min_conf,
+            face_fallback_min_size_scale=face_fallback_min_size_scale,
             person_smoothing_window=person_smoothing_window,
             person_max_switch_gap=person_max_switch_gap,
             object_smoothing_window=object_smoothing_window,
@@ -207,6 +209,7 @@ class EAGLE:
             det_thresh=config.face_det_thresh,
             face_detection_backend=config.face_detection_backend,
             face_smoothing_window=config.face_smoothing_window,
+            face_fallback_min_size_scale=config.face_fallback_min_size_scale,
             progress_bar=progress_bar,
         )
 
@@ -359,6 +362,8 @@ class EAGLE:
         if int(meta.get("face_stride", -1)) != int(context.face_stride):
             return None
         if int(meta.get("face_smoothing_window", -1)) != int(config.face_smoothing_window):
+            return None
+        if abs(float(meta.get("face_fallback_min_size_scale", -1.0)) - float(config.face_fallback_min_size_scale)) > 1e-9:
             return None
         if str(meta.get("face_detection_backend", "")) != str(config.face_detection_backend):
             return None

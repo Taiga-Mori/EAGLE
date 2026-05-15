@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import cv2
@@ -15,6 +16,7 @@ class AnnotationExporter:
 
     def __init__(self, paths: AppPaths) -> None:
         self.paths = paths
+        self._available_ffmpeg_encoders: set[str] | None = None
 
     def make_video(self, context: MediaContext, visualization_mode: str) -> Path | list[Path]:
         if context.media_type != "video":
@@ -32,7 +34,7 @@ class AnnotationExporter:
         silent_video = context.output_dir / "temp.mp4"
         output_video = context.output_dir / "all_points.mp4"
         frame_name_width = len(str(context.total_frames - 1))
-        self._run_ffmpeg(
+        self._run_h264_encode(
             [
                 str(self.paths.ffmpeg_path),
                 "-y",
@@ -42,12 +44,8 @@ class AnnotationExporter:
                 "0",
                 "-i",
                 str(context.temp_dir / f"%0{frame_name_width}d.jpg"),
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                str(silent_video),
             ],
+            silent_video,
             "creating the annotated point video",
         )
 
@@ -399,6 +397,72 @@ class AnnotationExporter:
             return None
         return [fallback_ffmpeg, *command[1:]]
 
+    def _run_h264_encode(self, command_prefix: list[str], output_path: Path, purpose: str) -> None:
+        preferred_encoder = self._preferred_h264_encoder()
+        if preferred_encoder is not None:
+            try:
+                self._run_ffmpeg(
+                    command_prefix + self._h264_encoder_args(preferred_encoder) + [str(output_path)],
+                    f"{purpose} with {preferred_encoder}",
+                )
+                return
+            except RuntimeError as exc:
+                print(
+                    f"Hardware video encoder {preferred_encoder} failed while {purpose}; "
+                    "falling back to libx264.\n"
+                    f"{exc}",
+                    flush=True,
+                )
+
+        self._run_ffmpeg(
+            command_prefix + self._h264_encoder_args("libx264") + [str(output_path)],
+            f"{purpose} with libx264",
+        )
+
+    def _preferred_h264_encoder(self) -> str | None:
+        if str(sys.platform).startswith("darwin") and self._ffmpeg_encoder_available("h264_videotoolbox"):
+            return "h264_videotoolbox"
+        if self._ffmpeg_encoder_available("h264_nvenc"):
+            return "h264_nvenc"
+        return None
+
+    def _h264_encoder_args(self, encoder: str) -> list[str]:
+        if encoder == "h264_videotoolbox":
+            return ["-c:v", "h264_videotoolbox", "-allow_sw", "1", "-pix_fmt", "yuv420p"]
+        if encoder == "h264_nvenc":
+            return ["-c:v", "h264_nvenc", "-pix_fmt", "yuv420p"]
+        return ["-c:v", "libx264", "-pix_fmt", "yuv420p"]
+
+    def _ffmpeg_encoder_available(self, encoder: str) -> bool:
+        if self._available_ffmpeg_encoders is None:
+            self._available_ffmpeg_encoders = self._detect_ffmpeg_encoders()
+        return encoder in self._available_ffmpeg_encoders
+
+    def _detect_ffmpeg_encoders(self) -> set[str]:
+        command = [str(self.paths.ffmpeg_path), "-hide_banner", "-encoders"]
+        try:
+            result = subprocess.run(command, check=True, capture_output=True, text=True)
+        except Exception:
+            fallback_ffmpeg = shutil.which("ffmpeg")
+            if fallback_ffmpeg is None:
+                return set()
+            try:
+                result = subprocess.run(
+                    [fallback_ffmpeg, "-hide_banner", "-encoders"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except Exception:
+                return set()
+
+        encoders: set[str] = set()
+        for line in (result.stdout or "").splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[0].startswith("V"):
+                encoders.add(parts[1])
+        return encoders
+
     def _make_image_list_video(self, source_paths: list[Path], fps: float, output_path: Path, purpose: str) -> None:
         list_path = output_path.with_suffix(".frames.txt")
         frame_duration = 1.0 / float(fps)
@@ -412,7 +476,7 @@ class AnnotationExporter:
             lines.append(f"file '{escaped_path}'")
         list_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         try:
-            self._run_ffmpeg(
+            self._run_h264_encode(
                 [
                     str(self.paths.ffmpeg_path),
                     "-y",
@@ -422,12 +486,8 @@ class AnnotationExporter:
                     "0",
                     "-i",
                     str(list_path),
-                    "-c:v",
-                    "libx264",
-                    "-pix_fmt",
-                    "yuv420p",
-                    str(output_path),
                 ],
+                output_path,
                 purpose,
             )
         finally:

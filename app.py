@@ -478,6 +478,7 @@ def main() -> None:
             gaze_smoothing_window = int(st.session_state.get("gaze_smoothing_window", 5))
             person_part_distance_scale = float(st.session_state.get("person_part_distance_scale", 0.10))
             person_part_min_conf = float(st.session_state.get("person_part_min_conf", 0.0))
+            face_fallback_min_size_scale = float(st.session_state.get("face_fallback_min_size_scale", 1.0))
             selected_object_classes = normalize_selected_classes(
                 st.session_state.get("selected_object_classes", list(COCO_OBJECT_CLASSES))
             )
@@ -712,6 +713,15 @@ def main() -> None:
                         value=int(st.session_state.get("face_smoothing_window", 5)),
                     )
                 )
+                face_fallback_min_size_scale = float(
+                    st.number_input(
+                        "Face fallback min size scale",
+                        min_value=0.1,
+                        step=0.1,
+                        value=float(st.session_state.get("face_fallback_min_size_scale", 1.0)),
+                        help="Scales the minimum face box size used when face detection fails and the box is estimated from pose keypoints.",
+                    )
+                )
                 reuse_cached_faces = st.checkbox(
                     "Reuse existing faces.csv when available",
                     value=bool(st.session_state.get("reuse_cached_faces", False)),
@@ -819,6 +829,7 @@ def main() -> None:
         st.session_state.gaze_target_radius = gaze_target_radius
         st.session_state.person_part_distance_scale = person_part_distance_scale
         st.session_state.person_part_min_conf = person_part_min_conf
+        st.session_state.face_fallback_min_size_scale = face_fallback_min_size_scale
         st.session_state.reuse_cached_objects = reuse_cached_objects
         st.session_state.reuse_cached_persons = reuse_cached_persons
         st.session_state.reuse_cached_faces = reuse_cached_faces
@@ -896,6 +907,7 @@ def main() -> None:
                 gaze_target_radius=st.session_state.gaze_target_radius,
                 person_part_distance_scale=st.session_state.person_part_distance_scale,
                 person_part_min_conf=st.session_state.person_part_min_conf,
+                face_fallback_min_size_scale=st.session_state.face_fallback_min_size_scale,
                 person_smoothing_window=st.session_state.person_smoothing_window,
                 person_max_switch_gap=st.session_state.person_max_switch_gap,
                 object_smoothing_window=st.session_state.object_smoothing_window,

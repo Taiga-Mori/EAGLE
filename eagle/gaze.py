@@ -60,6 +60,7 @@ class FaceGazeEstimator:
         det_thresh: float,
         face_detection_backend: str,
         face_smoothing_window: int,
+        face_fallback_min_size_scale: float,
         progress_bar=None,
     ) -> pd.DataFrame:
         self._update_progress(progress_bar, 0, 1, "Loading person/object detections...")
@@ -69,7 +70,14 @@ class FaceGazeEstimator:
         if object_df.empty:
             face_df = pd.DataFrame(columns=FACE_COLUMNS)
             face_df.to_csv(context.faces_path, index=False)
-            self._save_faces_meta(context, object_df, face_detection_backend, face_smoothing_window, det_thresh)
+            self._save_faces_meta(
+                context,
+                object_df,
+                face_detection_backend,
+                face_smoothing_window,
+                face_fallback_min_size_scale,
+                det_thresh,
+            )
             return face_df
 
         if context.media_type == "image":
@@ -77,7 +85,13 @@ class FaceGazeEstimator:
             if frame is None:
                 raise FileNotFoundError(f"Could not open image: {context.media_path}")
             frame_objects = object_df.to_dict(orient="records")
-            face_map = self.detect_faces_for_frame(frame, frame_objects, det_thresh, face_detection_backend)
+            face_map = self.detect_faces_for_frame(
+                frame,
+                frame_objects,
+                det_thresh,
+                face_detection_backend,
+                face_fallback_min_size_scale,
+            )
             face_records.extend(self._face_records_from_maps([0], {0: face_map}, object_df, {0: face_map}))
         else:
             raw_face_maps_by_frame: dict[int, dict[int, FaceDetection]] = {}
@@ -86,6 +100,7 @@ class FaceGazeEstimator:
                 object_df,
                 det_thresh,
                 face_detection_backend,
+                face_fallback_min_size_scale,
                 raw_face_maps_by_frame,
                 progress_bar,
             )
@@ -110,7 +125,14 @@ class FaceGazeEstimator:
         self._update_progress(progress_bar, 0, 1, "Saving faces.csv...")
         face_df = pd.DataFrame(face_records, columns=FACE_COLUMNS)
         face_df.to_csv(context.faces_path, index=False)
-        self._save_faces_meta(context, object_df, face_detection_backend, face_smoothing_window, det_thresh)
+        self._save_faces_meta(
+            context,
+            object_df,
+            face_detection_backend,
+            face_smoothing_window,
+            face_fallback_min_size_scale,
+            det_thresh,
+        )
         self._update_progress(progress_bar, 1, 1, "Saving faces.csv...")
         return face_df
 
@@ -638,6 +660,7 @@ class FaceGazeEstimator:
         object_df: pd.DataFrame,
         det_thresh: float,
         face_detection_backend: str,
+        face_fallback_min_size_scale: float,
         face_maps_by_frame: dict[int, dict[int, FaceDetection]],
         progress_bar=None,
     ) -> None:
@@ -658,7 +681,13 @@ class FaceGazeEstimator:
                     continue
 
                 frame_objects = object_df[object_df["frame_idx"] == frame_idx].to_dict(orient="records")
-                face_map = self.detect_faces_for_frame(frame, frame_objects, det_thresh, face_detection_backend)
+                face_map = self.detect_faces_for_frame(
+                    frame,
+                    frame_objects,
+                    det_thresh,
+                    face_detection_backend,
+                    face_fallback_min_size_scale,
+                )
                 face_maps_by_frame[frame_idx] = face_map
                 face_step += 1
                 if face_step == expected_steps or face_step % update_interval == 0:
@@ -1146,6 +1175,7 @@ class FaceGazeEstimator:
         object_df: pd.DataFrame,
         face_detection_backend: str,
         face_smoothing_window: int,
+        face_fallback_min_size_scale: float,
         det_thresh: float,
     ) -> None:
         with context.faces_meta_path.open("w", encoding="utf-8") as file:
@@ -1153,6 +1183,7 @@ class FaceGazeEstimator:
                 {
                     "face_detection_backend": face_detection_backend,
                     "face_smoothing_window": face_smoothing_window,
+                    "face_fallback_min_size_scale": float(face_fallback_min_size_scale),
                     "face_stride": int(context.face_stride),
                     "det_thresh": float(det_thresh),
                     "media_path": str(context.media_path.resolve()),
@@ -1393,6 +1424,7 @@ class FaceGazeEstimator:
         detections: list[dict],
         det_thresh: float,
         face_detection_backend: str,
+        face_fallback_min_size_scale: float = 1.0,
     ) -> dict[int, FaceDetection]:
         person_detections = [d for d in detections if d["cls"] == "person"]
         if not person_detections:
@@ -1429,7 +1461,7 @@ class FaceGazeEstimator:
             )
             assigned_tracks.add(track_id)
             assigned_face_ids.add(face_id)
-        self._add_pose_face_fallbacks(face_map, person_detections, frame)
+        self._add_pose_face_fallbacks(face_map, person_detections, frame, face_fallback_min_size_scale)
         return face_map
 
     def _detect_face_candidates(
@@ -1520,12 +1552,13 @@ class FaceGazeEstimator:
         face_map: dict[int, FaceDetection],
         person_detections: list[dict],
         frame: np.ndarray,
+        face_fallback_min_size_scale: float,
     ) -> None:
         for detection in person_detections:
             track_id = str(detection["track_id"])
             if track_id in face_map:
                 continue
-            fallback_box = self._nose_centered_face_bbox(detection, frame)
+            fallback_box = self._nose_centered_face_bbox(detection, frame, face_fallback_min_size_scale)
             if fallback_box is None:
                 continue
             x1, y1, x2, y2 = fallback_box
@@ -1538,7 +1571,12 @@ class FaceGazeEstimator:
                 y2=y2,
             )
 
-    def _nose_centered_face_bbox(self, detection: dict, frame: np.ndarray) -> tuple[int, int, int, int] | None:
+    def _nose_centered_face_bbox(
+        self,
+        detection: dict,
+        frame: np.ndarray,
+        face_fallback_min_size_scale: float,
+    ) -> tuple[int, int, int, int] | None:
         keypoints = self._pose_keypoints(detection)
         if not keypoints:
             return None
@@ -1556,7 +1594,7 @@ class FaceGazeEstimator:
         if not face_points:
             return None
 
-        face_width = self._nose_fallback_face_width(nose, face_points, detection)
+        face_width = self._nose_fallback_face_width(nose, face_points, detection, face_fallback_min_size_scale)
         if face_width is None:
             return None
 
@@ -1597,10 +1635,11 @@ class FaceGazeEstimator:
         nose: tuple[float, float],
         face_points: dict[int, tuple[float, float]],
         detection: dict,
+        face_fallback_min_size_scale: float,
     ) -> float | None:
         person_width = max(float(detection["x2"]) - float(detection["x1"]), 1.0)
         person_height = max(float(detection["y2"]) - float(detection["y1"]), 1.0)
-        min_face_width = max(12.0, person_width * 0.12, person_height * 0.07)
+        min_face_width = max(16.0, person_width * 0.15, person_height * 0.09) * float(face_fallback_min_size_scale)
         left_eye = face_points.get(1)
         right_eye = face_points.get(2)
         left_ear = face_points.get(3)

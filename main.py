@@ -35,6 +35,7 @@ if __name__ == "__main__":
         gaze_target_radius=15,
         person_part_distance_scale=0.10,
         person_part_min_conf=0.0,
+        face_fallback_min_size_scale=1.0,
         person_smoothing_window=5,
         person_max_switch_gap=15,
         object_smoothing_window=5,

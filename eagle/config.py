@@ -83,6 +83,7 @@ class ConfigManager:
         gaze_target_radius: int,
         person_part_distance_scale: float,
         person_part_min_conf: float,
+        face_fallback_min_size_scale: float,
         person_smoothing_window: int,
         person_max_switch_gap: int,
         object_smoothing_window: int,
@@ -116,6 +117,8 @@ class ConfigManager:
             raise ValueError("person_part_distance_scale must be greater than 0")
         if not 0.0 <= person_part_min_conf <= 1.0:
             raise ValueError("person_part_min_conf must be between 0.0 and 1.0")
+        if face_fallback_min_size_scale <= 0:
+            raise ValueError("face_fallback_min_size_scale must be greater than 0")
         if person_smoothing_window < 1:
             raise ValueError("person_smoothing_window must be at least 1")
         if person_max_switch_gap < 0:
@@ -154,6 +157,7 @@ class ConfigManager:
             gaze_target_radius=int(gaze_target_radius),
             person_part_distance_scale=float(person_part_distance_scale),
             person_part_min_conf=float(person_part_min_conf),
+            face_fallback_min_size_scale=float(face_fallback_min_size_scale),
             person_smoothing_window=int(person_smoothing_window),
             person_max_switch_gap=int(person_max_switch_gap),
             object_smoothing_window=int(object_smoothing_window),

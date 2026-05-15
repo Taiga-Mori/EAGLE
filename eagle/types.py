@@ -52,6 +52,7 @@ class PipelineConfig:
     gaze_target_radius: int
     person_part_distance_scale: float
     person_part_min_conf: float
+    face_fallback_min_size_scale: float
     person_smoothing_window: int
     person_max_switch_gap: int
     object_smoothing_window: int
