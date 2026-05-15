@@ -138,7 +138,7 @@ venv/bin/streamlit run app.py
 - `Person detection backend`
   - `yolo26x-pose` です。
 - `Object detection backend`
-  - YOLO26 detection backend（`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, `yolo26x`）を選択します。EAGLE は `~/.EAGLE/` に選択中の object 重みだけを残します。
+  - YOLO26 detection backend（`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, `yolo26x`）を選択します。ダウンロード済みの重みは再利用のため `~/.EAGLE/` に保持されます。
 - `Face detection backend`
   - デフォルトは `retinaface` です。MediaPipe を使いたい場合は `mediapipe` を選びます。
 - `Gaze detection backend`

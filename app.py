@@ -634,7 +634,7 @@ def main() -> None:
                     "Object detection backend",
                     options=object_detection_options,
                     index=object_detection_options.index(saved_object_detection_backend),
-                    help="Only the selected YOLO object weights are kept in ~/.EAGLE/.",
+                    help="YOLO object weights are downloaded to ~/.EAGLE/ and kept for reuse.",
                 )
                 object_det_thresh = float(
                     st.slider("Object threshold", 0.0, 1.0, object_det_thresh, 0.05)

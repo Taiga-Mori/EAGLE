@@ -89,7 +89,7 @@ venv/bin/streamlit run app.py
 ## Primera ejecución y descarga de modelos
 En el primer uso, EAGLE puede descargar y guardar en caché:
 
-- Pesos YOLO object seleccionados: uno de `yolo26n.pt`, `yolo26s.pt`, `yolo26m.pt`, `yolo26l.pt` o `yolo26x.pt`
+- Pesos YOLO object según sea necesario: `yolo26n.pt`, `yolo26s.pt`, `yolo26m.pt`, `yolo26l.pt` o `yolo26x.pt`
 - `yolo26x-pose.pt`
 - Pesos preentrenados de RetinaFace
 - Archivos torch.hub de GAZELLE
@@ -138,7 +138,7 @@ Comportamiento del directorio de salida:
 - `Person detection backend`
   - `yolo26x-pose`.
 - `Object detection backend`
-  - Selecciona el backend YOLO26 detection (`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l` o `yolo26x`). EAGLE conserva solo los pesos object seleccionados en `~/.EAGLE/`.
+  - Selecciona el backend YOLO26 detection (`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l` o `yolo26x`). Los pesos descargados se conservan en `~/.EAGLE/` para reutilizarlos.
 - `Face detection backend`
   - `retinaface` por defecto, o `mediapipe` si quieres usar MediaPipe.
 - `Gaze detection backend`

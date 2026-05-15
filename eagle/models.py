@@ -148,24 +148,11 @@ class ModelManager:
     def ensure_yolo_object_weights(self, backend: str) -> None:
         if backend not in OBJECT_DETECTION_BACKENDS:
             raise ValueError(f"Unsupported object detection backend '{backend}'.")
-        self._remove_unselected_yolo_object_weights(backend)
         self._ensure_download(
             self.yolo_object_path(backend),
             OBJECT_DETECTION_BACKENDS[backend],
             f"YOLO object weights ({backend})",
         )
-
-    def _remove_unselected_yolo_object_weights(self, selected_backend: str) -> None:
-        selected_path = self.yolo_object_path(selected_backend)
-        for backend in OBJECT_DETECTION_BACKENDS:
-            candidate = self.yolo_object_path(backend)
-            if candidate == selected_path or not candidate.exists():
-                continue
-            try:
-                candidate.unlink()
-                print(f"Removed unused YOLO object weights: {candidate}", flush=True)
-            except Exception as exc:
-                raise RuntimeError(f"Failed to remove unused YOLO object weights: {candidate}\nOriginal error: {exc}") from exc
 
     def ensure_person_detection_weights(self, backend: str) -> None:
         if backend not in PERSON_DETECTION_BACKENDS:

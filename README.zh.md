@@ -89,7 +89,7 @@ venv/bin/streamlit run app.py
 ## 首次运行和模型下载
 首次使用时，EAGLE 可能会下载并缓存：
 
-- 选定的 YOLO object 权重：`yolo26n.pt`、`yolo26s.pt`、`yolo26m.pt`、`yolo26l.pt` 或 `yolo26x.pt`
+- 按需使用的 YOLO object 权重：`yolo26n.pt`、`yolo26s.pt`、`yolo26m.pt`、`yolo26l.pt` 或 `yolo26x.pt`
 - `yolo26x-pose.pt`
 - RetinaFace 预训练权重
 - GAZELLE torch.hub 文件
@@ -138,7 +138,7 @@ venv/bin/streamlit run app.py
 - `Person detection backend`
   - `yolo26x-pose`。
 - `Object detection backend`
-  - 选择 YOLO26 detection backend（`yolo26n`、`yolo26s`、`yolo26m`、`yolo26l` 或 `yolo26x`）。EAGLE 在 `~/.EAGLE/` 中只保留当前选定的 object 权重。
+  - 选择 YOLO26 detection backend（`yolo26n`、`yolo26s`、`yolo26m`、`yolo26l` 或 `yolo26x`）。已下载的权重会保留在 `~/.EAGLE/` 中以便复用。
 - `Face detection backend`
   - 默认是 `retinaface`；如果想使用 MediaPipe，可以选择 `mediapipe`。
 - `Gaze detection backend`
