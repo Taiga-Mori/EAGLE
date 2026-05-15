@@ -92,6 +92,7 @@ class FaceGazeEstimator:
             self._update_progress(progress_bar, 0, 1, "Interpolating and smoothing faces...")
             face_maps_by_frame = self.temporal_processor.interpolate_faces(
                 frame_indices=list(range(context.total_frames)),
+                sampled_frame_indices=context.face_frame_idx,
                 raw_face_maps_by_frame=raw_face_maps_by_frame,
                 object_df=object_df,
                 smoothing_window=face_smoothing_window,

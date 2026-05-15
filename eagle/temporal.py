@@ -314,6 +314,7 @@ class GazeTemporalProcessor:
     def interpolate_faces(
         self,
         frame_indices: list[int],
+        sampled_frame_indices: list[int],
         raw_face_maps_by_frame: dict[int, dict[int, FaceDetection]],
         object_df: pd.DataFrame,
         smoothing_window: int = 1,
@@ -325,6 +326,7 @@ class GazeTemporalProcessor:
 
         person_df["track_id"] = person_df["track_id"].astype(str)
         frame_index_set = set(frame_indices)
+        sampled_frame_set = set(sampled_frame_indices)
 
         for track_id, group in person_df.groupby("track_id", sort=False):
             track_frames = sorted(int(frame_idx) for frame_idx in group["frame_idx"].tolist() if int(frame_idx) in frame_index_set)
@@ -339,13 +341,58 @@ class GazeTemporalProcessor:
             if not sparse_faces:
                 continue
 
-            dense_faces = {frame_idx: face for frame_idx, face in sparse_faces}
+            sampled_track_frames = sorted(
+                frame_idx
+                for frame_idx in track_frames
+                if frame_idx in sampled_frame_set
+            )
+            dense_faces = self._interpolate_face_track_between_successful_samples(
+                track_id,
+                track_frames,
+                sparse_faces,
+                sampled_track_frames,
+            )
             if smoothing_window > 1:
                 dense_faces = self._smooth_face_track(dense_faces, smoothing_window)
             for frame_idx, face in dense_faces.items():
                 dense_face_maps_by_frame.setdefault(frame_idx, {})[track_id] = face
 
         return dense_face_maps_by_frame
+
+    def _interpolate_face_track_between_successful_samples(
+        self,
+        track_id: str,
+        track_frames: list[int],
+        sparse_faces: list[tuple[int, FaceDetection]],
+        sampled_track_frames: list[int],
+    ) -> dict[int, FaceDetection]:
+        dense_series: dict[int, FaceDetection] = {frame_idx: face for frame_idx, face in sparse_faces}
+        if len(sampled_track_frames) < 2:
+            return dense_series
+
+        face_by_frame = dict(sparse_faces)
+        track_frame_set = set(track_frames)
+        for prev_sample, next_sample in zip(sampled_track_frames, sampled_track_frames[1:]):
+            if prev_sample not in face_by_frame or next_sample not in face_by_frame:
+                continue
+            prev_face = face_by_frame[prev_sample]
+            next_face = face_by_frame[next_sample]
+            frame_gap = next_sample - prev_sample
+            if frame_gap <= 1:
+                continue
+            for frame_idx in range(prev_sample + 1, next_sample):
+                if frame_idx not in track_frame_set:
+                    continue
+                ratio = (frame_idx - prev_sample) / frame_gap
+                dense_series[frame_idx] = FaceDetection(
+                    track_id=track_id,
+                    conf=float((1.0 - ratio) * prev_face.conf + ratio * next_face.conf),
+                    x1=int(round((1.0 - ratio) * prev_face.x1 + ratio * next_face.x1)),
+                    y1=int(round((1.0 - ratio) * prev_face.y1 + ratio * next_face.y1)),
+                    x2=int(round((1.0 - ratio) * prev_face.x2 + ratio * next_face.x2)),
+                    y2=int(round((1.0 - ratio) * prev_face.y2 + ratio * next_face.y2)),
+                )
+        return dense_series
 
     def interpolate_and_smooth(
         self,
@@ -430,20 +477,32 @@ class GazeTemporalProcessor:
         half_window = window // 2
         smoothed_series: dict[int, FaceDetection] = {}
 
-        for position, frame_idx in enumerate(ordered_frames):
-            left = max(0, position - half_window)
-            right = min(len(ordered_frames), position + half_window + 1)
-            window_faces = [dense_series[idx] for idx in ordered_frames[left:right]]
-            smoothed_series[frame_idx] = FaceDetection(
-                track_id=dense_series[frame_idx].track_id,
-                conf=float(np.mean([face.conf for face in window_faces])),
-                x1=int(round(np.mean([face.x1 for face in window_faces]))),
-                y1=int(round(np.mean([face.y1 for face in window_faces]))),
-                x2=int(round(np.mean([face.x2 for face in window_faces]))),
-                y2=int(round(np.mean([face.y2 for face in window_faces]))),
-            )
+        for segment_frames in self._contiguous_frame_segments(ordered_frames):
+            for position, frame_idx in enumerate(segment_frames):
+                left = max(0, position - half_window)
+                right = min(len(segment_frames), position + half_window + 1)
+                window_faces = [dense_series[idx] for idx in segment_frames[left:right]]
+                smoothed_series[frame_idx] = FaceDetection(
+                    track_id=dense_series[frame_idx].track_id,
+                    conf=float(np.mean([face.conf for face in window_faces])),
+                    x1=int(round(np.mean([face.x1 for face in window_faces]))),
+                    y1=int(round(np.mean([face.y1 for face in window_faces]))),
+                    x2=int(round(np.mean([face.x2 for face in window_faces]))),
+                    y2=int(round(np.mean([face.y2 for face in window_faces]))),
+                )
 
         return smoothed_series
+
+    def _contiguous_frame_segments(self, frame_indices: list[int]) -> list[list[int]]:
+        if not frame_indices:
+            return []
+        segments: list[list[int]] = [[frame_indices[0]]]
+        for frame_idx in frame_indices[1:]:
+            if frame_idx == segments[-1][-1] + 1:
+                segments[-1].append(frame_idx)
+                continue
+            segments.append([frame_idx])
+        return segments
 
     def _smooth_track(self, dense_series: dict[int, GazePoint], window: int, point_method: str) -> dict[int, GazePoint]:
         ordered_frames = sorted(dense_series)

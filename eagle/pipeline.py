@@ -317,6 +317,8 @@ class EAGLE:
             return None
         if backend is not None and str(meta.get("backend", "")) != str(backend):
             return None
+        if expected_stage == "persons" and str(meta.get("pose_keypoint_assignment", "")) != "bbox_geometry_v1":
+            return None
         cached_tracker_config = meta.get("tracker_config")
         current_tracker_config = self._current_tracker_config()
         if cached_tracker_config != current_tracker_config:

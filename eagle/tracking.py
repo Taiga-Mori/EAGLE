@@ -54,6 +54,7 @@ class ObjectTracker:
             {
                 "detection_stage": "persons",
                 "person_detection_source": "pose",
+                "pose_keypoint_assignment": "bbox_geometry_v1",
                 "backend": person_detection_backend,
                 "max_switch_gap": int(max_switch_gap),
             },
@@ -206,6 +207,7 @@ class ObjectTracker:
             return raw_rows
 
         keypoint_triplets = self._keypoint_triplets(result)
+        assigned_keypoints = self._assign_keypoints_to_boxes(boxes.xyxy.tolist(), keypoint_triplets)
         for box_index, (cls_id, track_id, conf, xyxy) in enumerate(
             zip(
                 boxes.cls.tolist(),
@@ -219,7 +221,7 @@ class ObjectTracker:
             cls_name = result.names[int(cls_id)]
             if cls_name != "person":
                 continue
-            pose_keypoints = keypoint_triplets[box_index] if box_index < len(keypoint_triplets) else []
+            pose_keypoints = assigned_keypoints.get(box_index, [])
             raw_rows.append(
                 {
                     "yolo_idx": result_index,
@@ -245,6 +247,7 @@ class ObjectTracker:
             return raw_rows
 
         keypoint_triplets = self._keypoint_triplets(result)
+        assigned_keypoints = self._assign_keypoints_to_boxes(boxes.xyxy.tolist(), keypoint_triplets)
         for box_index, (cls_id, conf, xyxy) in enumerate(
             zip(
                 boxes.cls.tolist(),
@@ -258,7 +261,7 @@ class ObjectTracker:
             cls_name = result.names[int(cls_id)]
             if cls_name != "person":
                 continue
-            pose_keypoints = keypoint_triplets[box_index - 1] if box_index - 1 < len(keypoint_triplets) else []
+            pose_keypoints = assigned_keypoints.get(box_index - 1, [])
             raw_rows.append(
                 {
                     "frame_idx": 0,
@@ -339,6 +342,69 @@ class ObjectTracker:
                 point_list.append([float(point[0]), float(point[1]), point_conf])
             triplets.append(point_list)
         return triplets
+
+    def _assign_keypoints_to_boxes(
+        self,
+        boxes_xyxy: list[list[float]],
+        keypoint_triplets: list[list[list[float | None]]],
+    ) -> dict[int, list[list[float | None]]]:
+        if not boxes_xyxy or not keypoint_triplets:
+            return {}
+
+        candidates: list[tuple[float, int, int]] = []
+        for box_index, xyxy in enumerate(boxes_xyxy):
+            for keypoint_index, keypoints in enumerate(keypoint_triplets):
+                score = self._score_keypoints_for_box(keypoints, xyxy)
+                if score is None:
+                    continue
+                candidates.append((score, box_index, keypoint_index))
+
+        assigned_boxes: set[int] = set()
+        assigned_keypoints: set[int] = set()
+        output: dict[int, list[list[float | None]]] = {}
+        for _, box_index, keypoint_index in sorted(candidates, key=lambda item: item[0], reverse=True):
+            if box_index in assigned_boxes or keypoint_index in assigned_keypoints:
+                continue
+            assigned_boxes.add(box_index)
+            assigned_keypoints.add(keypoint_index)
+            output[box_index] = keypoint_triplets[keypoint_index]
+        return output
+
+    def _score_keypoints_for_box(self, keypoints: list[list[float | None]], xyxy: list[float]) -> float | None:
+        x1, y1, x2, y2 = map(float, xyxy)
+        width = max(x2 - x1, 1.0)
+        height = max(y2 - y1, 1.0)
+        diagonal = max(math.hypot(width, height), 1.0)
+
+        valid_points: list[tuple[float, float]] = []
+        for point in keypoints:
+            if not isinstance(point, (list, tuple)) or len(point) < 2:
+                continue
+            px = self._finite_float(point[0])
+            py = self._finite_float(point[1])
+            if px is None or py is None:
+                continue
+            valid_points.append((px, py))
+        if not valid_points:
+            return None
+
+        inside_count = sum(1 for px, py in valid_points if x1 <= px <= x2 and y1 <= py <= y2)
+        inside_ratio = inside_count / len(valid_points)
+        keypoint_center_x = sum(px for px, _ in valid_points) / len(valid_points)
+        keypoint_center_y = sum(py for _, py in valid_points) / len(valid_points)
+        box_center_x = (x1 + x2) / 2.0
+        box_center_y = (y1 + y2) / 2.0
+        center_distance = math.hypot(keypoint_center_x - box_center_x, keypoint_center_y - box_center_y)
+        if inside_ratio < 0.50 or center_distance > diagonal * 0.75:
+            return None
+        return inside_ratio - center_distance / diagonal
+
+    def _finite_float(self, value: Any) -> float | None:
+        try:
+            numeric = float(value)
+        except Exception:
+            return None
+        return numeric if math.isfinite(numeric) else None
 
     def _is_int_like(self, value: Any) -> bool:
         try:
