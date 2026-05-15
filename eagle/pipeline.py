@@ -257,8 +257,8 @@ class EAGLE:
         object_df = self.det_objects(progress_bar=progress_bar)
         face_df = self.det_faces(progress_bar=progress_bar)
         gaze_df = self.det_gaze(progress_bar=progress_bar)
-        media_output_paths = self.export_visualization()
         annotation_df = self.make_elan_csv()
+        media_output_paths = self.export_visualization()
         return {
             "persons": person_df,
             "objects": object_df,

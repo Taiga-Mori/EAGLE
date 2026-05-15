@@ -134,6 +134,7 @@ class AnnotationExporter:
         person_part_min_conf: float,
         selected_object_classes: list[str],
     ) -> pd.DataFrame:
+        context.annotation_path.parent.mkdir(parents=True, exist_ok=True)
         gaze_df = pd.read_csv(context.gaze_path)
         face_df = pd.read_csv(context.faces_path)
         object_frames = []
@@ -141,10 +142,12 @@ class AnnotationExporter:
             object_frames.append(pd.read_csv(context.persons_path))
         if context.objects_path.exists():
             object_frames.append(pd.read_csv(context.objects_path))
+        object_frames = [frame.dropna(how="all") for frame in object_frames]
+        object_frames = [frame for frame in object_frames if not frame.empty]
         object_df = pd.concat(object_frames, ignore_index=True) if object_frames else pd.DataFrame()
         if gaze_df.empty or face_df.empty or object_df.empty:
             empty_df = pd.DataFrame(columns=ANNOTATION_COLUMNS)
-            empty_df.to_csv(context.annotation_path, index=False)
+            self._write_annotation_csv(empty_df, context)
             return empty_df
 
         object_df["label"] = object_df.apply(
@@ -184,7 +187,7 @@ class AnnotationExporter:
         target_df = pd.DataFrame(target_rows)
         if target_df.empty:
             empty_df = pd.DataFrame(columns=ANNOTATION_COLUMNS)
-            empty_df.to_csv(context.annotation_path, index=False)
+            self._write_annotation_csv(empty_df, context)
             return empty_df
 
         if context.media_type == "image":
@@ -200,7 +203,7 @@ class AnnotationExporter:
                 ],
                 columns=ANNOTATION_COLUMNS,
             )
-            annotation_df.to_csv(context.annotation_path, index=False)
+            self._write_annotation_csv(annotation_df, context)
             return annotation_df
 
         segments = []
@@ -240,8 +243,13 @@ class AnnotationExporter:
             )
 
         annotation_df = pd.DataFrame(segments, columns=ANNOTATION_COLUMNS)
-        annotation_df.to_csv(context.annotation_path, index=False)
+        self._write_annotation_csv(annotation_df, context)
         return annotation_df
+
+    def _write_annotation_csv(self, annotation_df: pd.DataFrame, context: MediaContext) -> None:
+        annotation_df.to_csv(context.annotation_path, index=False)
+        if not context.annotation_path.exists():
+            raise RuntimeError(f"Failed to write annotation CSV: {context.annotation_path}")
 
     def _gaze_tier_label(self, track_id: object) -> str:
         return f"person {str(track_id)}_Gaze"

@@ -1259,9 +1259,11 @@ class FaceGazeEstimator:
             frames.append(pd.read_csv(context.persons_path))
         if context.objects_path.exists():
             frames.append(pd.read_csv(context.objects_path))
+        frames = [frame.dropna(how="all") for frame in frames]
+        frames = [frame for frame in frames if not frame.empty]
         if not frames:
             if context.objects_path.exists():
-                return pd.read_csv(context.objects_path)
+                return pd.read_csv(context.objects_path).dropna(how="all")
             return pd.DataFrame()
         combined = pd.concat(frames, ignore_index=True)
         if combined.empty:
