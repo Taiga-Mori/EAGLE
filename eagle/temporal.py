@@ -134,16 +134,17 @@ class ObjectTrackSmoother:
             if classes.empty:
                 continue
             group["cls"] = str(classes.mode().iloc[0])
-            group[bbox_cols] = group[bbox_cols].interpolate(method="linear", limit_direction="both")
-            group["conf"] = group["conf"].interpolate(method="linear", limit_direction="both")
+            geometry_df, keypoint_count = self._geometry_dataframe(group, bbox_cols)
+            geometry_df = geometry_df.interpolate(method="linear", limit_direction="both")
+            if window > 1:
+                geometry_df = geometry_df.rolling(window=window, min_periods=1, center=True).mean()
+            group[bbox_cols] = geometry_df[bbox_cols]
+            group["conf"] = geometry_df["conf"]
+            if "pose_keypoints" in extra_cols:
+                group["pose_keypoints"] = self._serialize_pose_keypoints(geometry_df, keypoint_count)
             if "source" in extra_cols:
                 non_null_sources = group["source"].dropna().astype(str)
                 group["source"] = str(non_null_sources.mode().iloc[0]) if not non_null_sources.empty else "detect"
-            if "pose_keypoints" in extra_cols:
-                group["pose_keypoints"] = self._interpolate_pose_keypoints(group["pose_keypoints"], window)
-            if window > 1:
-                group[bbox_cols] = group[bbox_cols].rolling(window=window, min_periods=1, center=True).mean()
-                group["conf"] = group["conf"].rolling(window=window, min_periods=1, center=True).mean()
             group = group.dropna(subset=bbox_cols).reset_index().rename(columns={"index": "frame_idx"})
             group["label"] = group.apply(lambda row: f"{row['cls']} {row['track_id']}", axis=1)
             smoothed_groups.append(group)
@@ -163,13 +164,16 @@ class ObjectTrackSmoother:
             output["pose_keypoints"] = None
         return output[OBJECT_COLUMNS]
 
-    def _interpolate_pose_keypoints(self, series: pd.Series, window: int) -> pd.Series:
-        parsed = [self._parse_pose_keypoints(value) for value in series.tolist()]
+    def _geometry_dataframe(self, group: pd.DataFrame, bbox_cols: list[str]) -> tuple[pd.DataFrame, int]:
+        geometry = group[bbox_cols + ["conf"]].astype(float).copy()
+        if "pose_keypoints" not in group.columns:
+            return geometry, 0
+
+        parsed = [self._parse_pose_keypoints(value) for value in group["pose_keypoints"].tolist()]
         keypoint_count = max((len(points) for points in parsed), default=0)
         if keypoint_count == 0:
-            return pd.Series([None] * len(series), index=series.index)
+            return geometry, 0
 
-        columns: dict[str, list[float]] = {}
         for keypoint_index in range(keypoint_count):
             for value_index, value_name in enumerate(["x", "y", "conf"]):
                 column = f"{keypoint_index}_{value_name}"
@@ -180,20 +184,19 @@ class ObjectTrackSmoother:
                         continue
                     value = points[keypoint_index][value_index]
                     values.append(float(value) if value is not None and np.isfinite(float(value)) else np.nan)
-                columns[column] = values
+                geometry[column] = values
+        return geometry, keypoint_count
 
-        keypoint_df = pd.DataFrame(columns, index=series.index)
-        keypoint_df = keypoint_df.interpolate(method="linear", limit_direction="both")
-        if window > 1:
-            keypoint_df = keypoint_df.rolling(window=window, min_periods=1, center=True).mean()
-
+    def _serialize_pose_keypoints(self, geometry_df: pd.DataFrame, keypoint_count: int) -> pd.Series:
+        if keypoint_count == 0:
+            return pd.Series([None] * len(geometry_df), index=geometry_df.index)
         output: list[str | None] = []
-        for row_index in keypoint_df.index:
+        for row_index in geometry_df.index:
             keypoints: list[list[float | None]] = []
             for keypoint_index in range(keypoint_count):
-                x = keypoint_df.at[row_index, f"{keypoint_index}_x"]
-                y = keypoint_df.at[row_index, f"{keypoint_index}_y"]
-                conf = keypoint_df.at[row_index, f"{keypoint_index}_conf"]
+                x = geometry_df.at[row_index, f"{keypoint_index}_x"]
+                y = geometry_df.at[row_index, f"{keypoint_index}_y"]
+                conf = geometry_df.at[row_index, f"{keypoint_index}_conf"]
                 if pd.isna(x) or pd.isna(y):
                     keypoints.append([None, None, None if pd.isna(conf) else float(conf)])
                     continue
@@ -205,7 +208,7 @@ class ObjectTrackSmoother:
                     ]
                 )
             output.append(json.dumps(keypoints, ensure_ascii=False))
-        return pd.Series(output, index=series.index)
+        return pd.Series(output, index=geometry_df.index)
 
     def _parse_pose_keypoints(self, value) -> list[list[float | None]]:
         if value is None or (isinstance(value, float) and pd.isna(value)):
@@ -246,12 +249,7 @@ class ObjectTrackSmoother:
             return group
 
         ordered = group.sort_values("frame_idx").reset_index(drop=True)
-        centers = np.column_stack(
-            [
-                (ordered["x1"].astype(float).to_numpy() + ordered["x2"].astype(float).to_numpy()) / 2.0,
-                (ordered["y1"].astype(float).to_numpy() + ordered["y2"].astype(float).to_numpy()) / 2.0,
-            ]
-        )
+        centers = self._track_geometry_centers(ordered)
         widths = np.maximum(ordered["x2"].astype(float).to_numpy() - ordered["x1"].astype(float).to_numpy(), 1.0)
         heights = np.maximum(ordered["y2"].astype(float).to_numpy() - ordered["y1"].astype(float).to_numpy(), 1.0)
         diagonals = np.hypot(widths, heights)
@@ -286,6 +284,25 @@ class ObjectTrackSmoother:
             return group
         kept = ordered.drop(index=sorted(remove_positions)).copy()
         return kept.reset_index(drop=True)
+
+    def _track_geometry_centers(self, group: pd.DataFrame) -> np.ndarray:
+        bbox_centers = np.column_stack(
+            [
+                (group["x1"].astype(float).to_numpy() + group["x2"].astype(float).to_numpy()) / 2.0,
+                (group["y1"].astype(float).to_numpy() + group["y2"].astype(float).to_numpy()) / 2.0,
+            ]
+        )
+        if "pose_keypoints" not in group.columns:
+            return bbox_centers
+
+        centers = bbox_centers.copy()
+        for row_index, value in enumerate(group["pose_keypoints"].tolist()):
+            keypoints = self._parse_pose_keypoints(value)
+            valid_points = [(point[0], point[1]) for point in keypoints if point[0] is not None and point[1] is not None]
+            if not valid_points:
+                continue
+            centers[row_index] = np.asarray(valid_points, dtype=float).mean(axis=0)
+        return centers
 
 
 class GazeTemporalProcessor:
@@ -322,7 +339,7 @@ class GazeTemporalProcessor:
             if not sparse_faces:
                 continue
 
-            dense_faces = self._interpolate_face_track(track_id, track_frames, sparse_faces)
+            dense_faces = {frame_idx: face for frame_idx, face in sparse_faces}
             if smoothing_window > 1:
                 dense_faces = self._smooth_face_track(dense_faces, smoothing_window)
             for frame_idx, face in dense_faces.items():
@@ -406,45 +423,6 @@ class GazeTemporalProcessor:
                 frame_width=prev_gaze.frame_width,
                 frame_height=prev_gaze.frame_height,
             )
-        return dense_series
-
-    def _interpolate_face_track(
-        self,
-        track_id: str,
-        track_frames: list[int],
-        sparse_faces: list[tuple[int, FaceDetection]],
-    ) -> dict[int, FaceDetection]:
-        dense_series: dict[int, FaceDetection] = {}
-        sparse_frames = [frame_idx for frame_idx, _ in sparse_faces]
-
-        for frame_idx in track_frames:
-            prev_idx = max((i for i, sparse_frame in enumerate(sparse_frames) if sparse_frame <= frame_idx), default=None)
-            next_idx = min((i for i, sparse_frame in enumerate(sparse_frames) if sparse_frame >= frame_idx), default=None)
-
-            if prev_idx is None and next_idx is None:
-                continue
-            if prev_idx is None:
-                dense_series[frame_idx] = sparse_faces[next_idx][1]
-                continue
-            if next_idx is None:
-                continue
-
-            prev_frame, prev_face = sparse_faces[prev_idx]
-            next_frame, next_face = sparse_faces[next_idx]
-            if prev_frame == next_frame:
-                dense_series[frame_idx] = prev_face
-                continue
-
-            ratio = (frame_idx - prev_frame) / (next_frame - prev_frame)
-            dense_series[frame_idx] = FaceDetection(
-                track_id=track_id,
-                conf=float((1.0 - ratio) * prev_face.conf + ratio * next_face.conf),
-                x1=int(round((1.0 - ratio) * prev_face.x1 + ratio * next_face.x1)),
-                y1=int(round((1.0 - ratio) * prev_face.y1 + ratio * next_face.y1)),
-                x2=int(round((1.0 - ratio) * prev_face.x2 + ratio * next_face.x2)),
-                y2=int(round((1.0 - ratio) * prev_face.y2 + ratio * next_face.y2)),
-            )
-
         return dense_series
 
     def _smooth_face_track(self, dense_series: dict[int, FaceDetection], window: int) -> dict[int, FaceDetection]:

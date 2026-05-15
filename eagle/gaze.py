@@ -1396,8 +1396,6 @@ class FaceGazeEstimator:
             return {}
 
         valid_faces = self._detect_face_candidates(frame, det_thresh, face_detection_backend)
-        if not valid_faces:
-            return {}
 
         scored_pairs: list[tuple[float, str, dict]] = []
         for detection in person_detections:
@@ -1428,6 +1426,7 @@ class FaceGazeEstimator:
             )
             assigned_tracks.add(track_id)
             assigned_face_ids.add(face_id)
+        self._add_pose_face_fallbacks(face_map, person_detections, frame)
         return face_map
 
     def _detect_face_candidates(
@@ -1513,6 +1512,105 @@ class FaceGazeEstimator:
             "bbox": (float(min(xs)), float(min(ys)), float(max(xs)), float(max(ys))),
         }
 
+    def _add_pose_face_fallbacks(
+        self,
+        face_map: dict[int, FaceDetection],
+        person_detections: list[dict],
+        frame: np.ndarray,
+    ) -> None:
+        for detection in person_detections:
+            track_id = str(detection["track_id"])
+            if track_id in face_map:
+                continue
+            fallback_box = self._nose_centered_face_bbox(detection, frame)
+            if fallback_box is None:
+                continue
+            x1, y1, x2, y2 = fallback_box
+            face_map[track_id] = FaceDetection(
+                track_id=track_id,
+                conf=0.0,
+                x1=x1,
+                y1=y1,
+                x2=x2,
+                y2=y2,
+            )
+
+    def _nose_centered_face_bbox(self, detection: dict, frame: np.ndarray) -> tuple[int, int, int, int] | None:
+        keypoints = self._pose_keypoints(detection)
+        if not keypoints:
+            return None
+
+        height, width = frame.shape[:2]
+        nose = self._keypoint_xy_in_frame(keypoints, 0, width, height)
+        if nose is None:
+            return None
+
+        face_points = {
+            keypoint_index: point
+            for keypoint_index in [1, 2, 3, 4]
+            if (point := self._keypoint_xy_in_frame(keypoints, keypoint_index, width, height)) is not None
+        }
+        if not face_points:
+            return None
+
+        face_width = self._nose_fallback_face_width(nose, face_points)
+        if face_width is None:
+            return None
+
+        face_height = face_width * 1.20
+        nose_x, nose_y = nose
+        x1 = int(round(nose_x - face_width / 2.0))
+        y1 = int(round(nose_y - face_height / 2.0))
+        x2 = int(round(nose_x + face_width / 2.0))
+        y2 = int(round(nose_y + face_height / 2.0))
+        x1 = max(0, min(width - 1, x1))
+        y1 = max(0, min(height - 1, y1))
+        x2 = max(x1 + 1, min(width, x2))
+        y2 = max(y1 + 1, min(height, y2))
+        return x1, y1, x2, y2
+
+    def _keypoint_xy_in_frame(
+        self,
+        keypoints: list,
+        keypoint_index: int,
+        width: int,
+        height: int,
+    ) -> tuple[float, float] | None:
+        if keypoint_index >= len(keypoints):
+            return None
+        keypoint = keypoints[keypoint_index]
+        if not isinstance(keypoint, (list, tuple)) or len(keypoint) < 2:
+            return None
+        x = float(keypoint[0])
+        y = float(keypoint[1])
+        if not np.isfinite(x) or not np.isfinite(y):
+            return None
+        if x < 0 or y < 0 or x >= width or y >= height:
+            return None
+        return x, y
+
+    def _nose_fallback_face_width(
+        self,
+        nose: tuple[float, float],
+        face_points: dict[int, tuple[float, float]],
+    ) -> float | None:
+        left_eye = face_points.get(1)
+        right_eye = face_points.get(2)
+        left_ear = face_points.get(3)
+        right_ear = face_points.get(4)
+        if left_ear is not None and right_ear is not None:
+            return max(float(np.hypot(left_ear[0] - right_ear[0], left_ear[1] - right_ear[1])) * 1.15, 8.0)
+        if left_eye is not None and right_eye is not None:
+            return max(float(np.hypot(left_eye[0] - right_eye[0], left_eye[1] - right_eye[1])) * 3.20, 8.0)
+
+        distances = [
+            float(np.hypot(point[0] - nose[0], point[1] - nose[1]))
+            for point in face_points.values()
+        ]
+        if not distances:
+            return None
+        return max(max(distances) * 3.00, 8.0)
+
     def _score_face_person_match(
         self,
         face: dict,
@@ -1537,7 +1635,7 @@ class FaceGazeEstimator:
 
         keypoint_center_x, keypoint_center_y = keypoint_summary["center"]
         center_distance = float(np.hypot(keypoint_center_x - face_center_x, keypoint_center_y - face_center_y))
-        max_center_distance = max(face_diag * 0.75, 1.0)
+        max_center_distance = max(face_diag * 0.50, 1.0)
         if center_distance > max_center_distance:
             return None
         return center_distance
