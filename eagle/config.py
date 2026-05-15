@@ -272,13 +272,13 @@ class ConfigManager:
 
         temp_dir = config.output_dir / "temp"
         if temp_dir.exists():
-            shutil.rmtree(temp_dir)
-        temp_dir.mkdir(exist_ok=True)
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        temp_dir.mkdir(parents=True, exist_ok=True)
 
         heatmap_dir = config.output_dir / "heatmaps"
         if heatmap_dir.exists():
-            shutil.rmtree(heatmap_dir)
-        heatmap_dir.mkdir(exist_ok=True)
+            shutil.rmtree(heatmap_dir, ignore_errors=True)
+        heatmap_dir.mkdir(parents=True, exist_ok=True)
 
         return MediaContext(
             media_path=media_path,
