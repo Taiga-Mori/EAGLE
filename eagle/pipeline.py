@@ -19,6 +19,7 @@ from .exporters import AnnotationExporter
 from .gaze import FaceGazeEstimator
 from .models import ModelManager
 from .paths import PathManager
+from .progress import finish_progress, reset_progress_timers, update_progress
 from .temporal import GazePointResolver, GazeTemporalProcessor, ObjectTrackSmoother
 from .tracking import ObjectTracker
 from .types import MediaContext, PipelineConfig
@@ -253,12 +254,18 @@ class EAGLE:
         )
 
     def run_all(self, progress_bar=None) -> dict[str, Any]:
+        reset_progress_timers()
         person_df = self.det_persons(progress_bar=progress_bar)
         object_df = self.det_objects(progress_bar=progress_bar)
         face_df = self.det_faces(progress_bar=progress_bar)
         gaze_df = self.det_gaze(progress_bar=progress_bar)
+        update_progress(progress_bar, 0, 1, "Creating annotation.csv...")
         annotation_df = self.make_elan_csv()
+        update_progress(progress_bar, 1, 1, "Creating annotation.csv...")
+        update_progress(progress_bar, 0, 1, "Exporting visualization...")
         media_output_paths = self.export_visualization()
+        update_progress(progress_bar, 1, 1, "Exporting visualization...")
+        elapsed_seconds = finish_progress(progress_bar)
         return {
             "persons": person_df,
             "objects": object_df,
@@ -266,6 +273,7 @@ class EAGLE:
             "gaze": gaze_df,
             "media_output_paths": media_output_paths,
             "annotation": annotation_df,
+            "elapsed_seconds": elapsed_seconds,
         }
 
     def _require_config(self) -> PipelineConfig:

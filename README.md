@@ -22,7 +22,7 @@ EAGLE is a Streamlit-based gaze annotation support tool for image and video anal
 - Non-person object tracking with YOLO detection
 - Face detection with RetinaFace by default, with MediaPipe also available
 - Gaze heatmap estimation with GAZELLE
-- Off-screen direction estimation with MobileOne gaze
+- Off-screen direction estimation with L2CS-Net by default, with MobileOne also available
 - CSV export plus annotated image/video export
 
 EAGLE is an annotation assistance tool, not guaranteed ground truth. You must review and validate all outputs before using them in research, analysis, reporting, or decision-making.
@@ -94,6 +94,7 @@ On first use, EAGLE may download and cache:
 - `yolo26x-pose.pt`
 - RetinaFace pretrained weights
 - GAZELLE torch.hub files
+- `L2CSNet_gaze360.pkl`
 - `mobileone_s0.pt`
 
 If first-run loading fails, check:
@@ -145,7 +146,7 @@ Output directory behavior:
 - `Gaze detection backend`
   - `gazelle`.
 - `Head pose detection backend`
-  - `mobileone`. This setting is prepared for future head-pose model backends.
+  - `l2cs` by default, or `mobileone` for the previous MobileOne-based direction model.
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
   - Separate thresholds for person pose tracking, non-person object tracking, face detection, and gaze in/out interpretation.
 - `Visualization mode`
@@ -313,7 +314,7 @@ eagle.preprocess(
     object_detection_backend="yolo26x",
     face_detection_backend="retinaface",
     gaze_detection_backend="gazelle",
-    head_pose_detection_backend="mobileone",
+    head_pose_detection_backend="l2cs",
     device="cpu",
     visualization_mode="both",
     person_part_min_conf=0.0,
@@ -342,5 +343,7 @@ See [LICENSE](LICENSE) for the repository license text.
   - https://github.com/serengil/retinaface
 - GAZELLE
   - https://github.com/fkryan/gazelle
+- L2CS-Net
+  - https://github.com/Ahmednull/L2CS-Net
 - MobileOne gaze-estimation weights
   - https://github.com/yakhyo/gaze-estimation

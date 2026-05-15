@@ -1,5 +1,5 @@
 from eagle import EAGLE
-from eagle.progress import ConsoleProgress
+from eagle.progress import ConsoleProgress, format_elapsed
 
 
 if __name__ == "__main__":
@@ -26,7 +26,7 @@ if __name__ == "__main__":
         person_detection_backend="yolo26x-pose",
         object_detection_backend="yolo26x",
         gaze_detection_backend="gazelle",
-        head_pose_detection_backend="mobileone",
+        head_pose_detection_backend="l2cs",
         device="cpu",
         visualization_mode="both",
         heatmap_alpha=0.35,
@@ -66,3 +66,4 @@ if __name__ == "__main__":
     print("Gaze CSV:", eagle.context.gaze_path)
     print("Annotation CSV:", eagle.context.annotation_path)
     print("Visualization Output:", results["media_output_paths"])
+    print("Total elapsed:", format_elapsed(float(results["elapsed_seconds"])))

@@ -25,6 +25,7 @@ try:
 except Exception:
     ULTRALYTICS_LOGGER = None
 
+from .l2cs import l2cs_resnet50
 from .mobile_gaze import mobileone_s0_gaze
 from .constants import (
     DEFAULT_FACE_DETECTION_BACKEND,
@@ -42,6 +43,10 @@ from .types import AppPaths
 MEDIAPIPE_FACE_DETECTOR_URL = (
     "https://storage.googleapis.com/mediapipe-models/face_detector/"
     "blaze_face_short_range/float16/1/blaze_face_short_range.tflite"
+)
+L2CS_GAZE_URL = (
+    "https://huggingface.co/dorni/SpeakerVid-5M-data-curation-models/resolve/"
+    "5c6e04d7fa3321e6228e79162f8ec98466bf308a/L2CSNet_gaze360.pkl?download=true"
 )
 
 
@@ -76,6 +81,8 @@ class ModelManager:
         self.mediapipe_face_detector_api: str | None = None
         self.gazelle = None
         self.gazelle_transform = None
+        self.l2cs_gaze = None
+        self.l2cs_gaze_transform = None
         self.mobile_gaze = None
         self.mobile_gaze_transform = None
         self.loaded_device: str | None = None
@@ -170,6 +177,26 @@ class ModelManager:
             "MobileGaze weights",
         )
 
+    def ensure_l2cs_gaze_weights(self) -> None:
+        if self.paths.l2cs_gaze_path.is_file():
+            return
+        try:
+            from huggingface_hub import hf_hub_download
+
+            downloaded_path = hf_hub_download(
+                repo_id="dorni/SpeakerVid-5M-data-curation-models",
+                filename="L2CSNet_gaze360.pkl",
+                revision="5c6e04d7fa3321e6228e79162f8ec98466bf308a",
+                cache_dir=str(self.paths.app_dir / "huggingface"),
+            )
+            shutil.copyfile(downloaded_path, self.paths.l2cs_gaze_path)
+        except Exception:
+            self._ensure_download(
+                self.paths.l2cs_gaze_path,
+                L2CS_GAZE_URL,
+                "L2CS-Net Gaze360 weights",
+            )
+
     def ensure_mediapipe_face_detector_weights(self) -> None:
         self._ensure_download(
             self.paths.mediapipe_face_detector_path,
@@ -261,6 +288,8 @@ class ModelManager:
             raise ValueError(f"Unsupported head pose detection backend '{head_pose_detection_backend}'.")
         self.ensure_yolo_object_weights(object_detection_backend)
         self.ensure_person_detection_weights(person_detection_backend)
+        if head_pose_detection_backend == "l2cs":
+            self.ensure_l2cs_gaze_weights()
         if head_pose_detection_backend == "mobileone":
             self.ensure_mobile_gaze_weights()
         if self.yolo is None or self.loaded_object_detection_backend != object_detection_backend:
@@ -321,6 +350,37 @@ class ModelManager:
                 raise RuntimeError(
                     "Failed to load the MobileGaze model on first run.\n"
                     f"Expected weight path: {self.paths.mobile_gaze_path}\n"
+                    "Please make sure this machine is connected to the internet and try again.\n"
+                    f"Original error: {exc}"
+                ) from exc
+        if head_pose_detection_backend == "l2cs" and (
+            self.l2cs_gaze is None or self.l2cs_gaze_transform is None or self.loaded_device != device
+        ):
+            try:
+                model = l2cs_resnet50(num_bins=90)
+                state_dict = torch.load(self.paths.l2cs_gaze_path, map_location=device)
+                if isinstance(state_dict, dict) and "state_dict" in state_dict:
+                    state_dict = state_dict["state_dict"]
+                if isinstance(state_dict, dict):
+                    state_dict = {
+                        str(key).removeprefix("module."): value
+                        for key, value in state_dict.items()
+                    }
+                model.load_state_dict(state_dict)
+                model.eval()
+                self.l2cs_gaze = model.to(device)
+                self.l2cs_gaze_transform = transforms.Compose(
+                    [
+                        transforms.ToPILImage(),
+                        transforms.Resize((448, 448)),
+                        transforms.ToTensor(),
+                        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                    ]
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    "Failed to load the L2CS-Net model on first run.\n"
+                    f"Expected weight path: {self.paths.l2cs_gaze_path}\n"
                     "Please make sure this machine is connected to the internet and try again.\n"
                     f"Original error: {exc}"
                 ) from exc

@@ -718,7 +718,7 @@ class FaceGazeEstimator:
         records: list[dict],
         selected_object_classes: list[str],
         device: str | None = None,
-        head_pose_detection_backend: str = "mobileone",
+        head_pose_detection_backend: str = "l2cs",
         offscreen_directions_by_frame: dict[int, dict[str, str]] | None = None,
         offscreen_angles_by_frame: dict[int, dict[str, tuple[float, float]]] | None = None,
         progress_bar=None,
@@ -1100,7 +1100,7 @@ class FaceGazeEstimator:
             [],
             selected_object_classes,
             None,
-            "mobileone",
+            "l2cs",
             offscreen_directions_by_frame,
             offscreen_angles_by_frame,
             progress_bar,
@@ -1719,10 +1719,22 @@ class FaceGazeEstimator:
         device: str,
         head_pose_detection_backend: str,
     ) -> dict[str, dict[str, float | str]]:
-        if head_pose_detection_backend != "mobileone":
+        if head_pose_detection_backend not in {"l2cs", "mobileone"}:
             raise ValueError(f"Unsupported head pose detection backend: {head_pose_detection_backend}")
         if not face_map or not gaze_map:
             return {}
+        if head_pose_detection_backend == "l2cs":
+            return self._detect_l2cs_offscreen_directions(frame, face_map, gaze_map, det_thresh, device)
+        return self._detect_mobileone_offscreen_directions(frame, face_map, gaze_map, det_thresh, device)
+
+    def _detect_mobileone_offscreen_directions(
+        self,
+        frame: np.ndarray,
+        face_map: dict[int, FaceDetection],
+        gaze_map: dict[int, GazePoint],
+        det_thresh: float,
+        device: str,
+    ) -> dict[str, dict[str, float | str]]:
         if self.models.mobile_gaze is None or self.models.mobile_gaze_transform is None:
             return {}
 
@@ -1749,6 +1761,58 @@ class FaceGazeEstimator:
 
         with torch.no_grad():
             yaw_logits, pitch_logits = self.models.mobile_gaze(batch)
+
+        yaw_probs = torch.softmax(yaw_logits, dim=1)
+        pitch_probs = torch.softmax(pitch_logits, dim=1)
+        yaw_deg = torch.sum(yaw_probs * idx_tensor, dim=1) * 4.0 - 180.0
+        pitch_deg = torch.sum(pitch_probs * idx_tensor, dim=1) * 4.0 - 180.0
+
+        directions: dict[str, dict[str, float | str]] = {}
+        for index, track_id in enumerate(track_ids):
+            yaw_value = float(yaw_deg[index].item())
+            pitch_value = float(pitch_deg[index].item())
+            directions[track_id] = {
+                "direction": self._direction_from_angles(yaw_value, pitch_value),
+                "yaw": yaw_value,
+                "pitch": pitch_value,
+            }
+        return directions
+
+    def _detect_l2cs_offscreen_directions(
+        self,
+        frame: np.ndarray,
+        face_map: dict[int, FaceDetection],
+        gaze_map: dict[int, GazePoint],
+        det_thresh: float,
+        device: str,
+    ) -> dict[str, dict[str, float | str]]:
+        if self.models.l2cs_gaze is None or self.models.l2cs_gaze_transform is None:
+            return {}
+
+        crops: list[torch.Tensor] = []
+        track_ids: list[str] = []
+        for track_id, gaze in gaze_map.items():
+            if gaze is None or gaze.inout > det_thresh:
+                continue
+            face = face_map.get(track_id)
+            if face is None:
+                continue
+            crop = self._crop_face(frame, face)
+            if crop is None:
+                continue
+            crop_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+            crops.append(self.models.l2cs_gaze_transform(crop_rgb))
+            track_ids.append(str(track_id))
+
+        if not crops:
+            return {}
+
+        device_obj = torch.device(device)
+        batch = torch.stack(crops).to(device_obj)
+        idx_tensor = torch.arange(90, device=device_obj, dtype=torch.float32)
+
+        with torch.no_grad():
+            yaw_logits, pitch_logits = self.models.l2cs_gaze(batch)
 
         yaw_probs = torch.softmax(yaw_logits, dim=1)
         pitch_probs = torch.softmax(pitch_logits, dim=1)

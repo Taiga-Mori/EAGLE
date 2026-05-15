@@ -33,6 +33,7 @@ from eagle.constants import (
     OBJECT_DETECTION_BACKENDS,
     PERSON_DETECTION_BACKENDS,
 )
+from eagle.progress import format_elapsed
 
 
 APP_PATH = Path(__file__).resolve()
@@ -729,7 +730,9 @@ def main() -> None:
                     options=gaze_detection_options,
                     index=gaze_detection_options.index(saved_gaze_detection_backend),
                 )
-                head_pose_detection_options = list(HEAD_POSE_DETECTION_BACKENDS)
+                head_pose_detection_options = [DEFAULT_HEAD_POSE_DETECTION_BACKEND] + [
+                    backend for backend in sorted(HEAD_POSE_DETECTION_BACKENDS) if backend != DEFAULT_HEAD_POSE_DETECTION_BACKEND
+                ]
                 saved_head_pose_detection_backend = st.session_state.get(
                     "head_pose_detection_backend",
                     DEFAULT_HEAD_POSE_DETECTION_BACKEND,
@@ -740,7 +743,7 @@ def main() -> None:
                     "Head pose detection backend",
                     options=head_pose_detection_options,
                     index=head_pose_detection_options.index(saved_head_pose_detection_backend),
-                    help="Currently only MobileOne is implemented.",
+                    help="L2CS-Net is the default; MobileOne is available for compatibility.",
                 )
                 gaze_det_thresh = float(
                     st.slider("Gaze threshold", 0.0, 1.0, gaze_det_thresh, 0.05)
@@ -920,8 +923,12 @@ def main() -> None:
             st.rerun()
 
     elif st.session_state.state == "end":
-        st.success("Completed")
         results = st.session_state.results or {}
+        elapsed_seconds = results.get("elapsed_seconds")
+        if elapsed_seconds is None:
+            st.success("Completed")
+        else:
+            st.success(f"Completed in {format_elapsed(float(elapsed_seconds))}")
         context = annotator.context
 
         if context is not None:

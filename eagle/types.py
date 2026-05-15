@@ -14,6 +14,7 @@ class AppPaths:
     yolo_path: Path
     yolo_pose_path: Path
     mediapipe_face_detector_path: Path
+    l2cs_gaze_path: Path
     mobile_gaze_path: Path
     torch_home: Path
     torch_hub_dir: Path

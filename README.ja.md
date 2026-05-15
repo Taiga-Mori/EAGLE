@@ -21,7 +21,7 @@ EAGLE は、画像・動画解析向けの Streamlit ベース視線アノテー
 - YOLO detection による非人物オブジェクト追跡
 - デフォルトの RetinaFace、または選択可能な MediaPipe による顔検出
 - GAZELLE による視線ヒートマップ推定
-- MobileOne gaze による画面外方向推定
+- デフォルトの L2CS-Net、または選択可能な MobileOne gaze による画面外方向推定
 - CSV 出力と、注釈付き画像・動画の出力
 
 EAGLE はアノテーション支援ツールであり、正解データを保証するものではありません。研究、分析、報告、意思決定に使用する前に、すべての出力を必ず確認・検証してください。
@@ -93,6 +93,7 @@ venv/bin/streamlit run app.py
 - `yolo26x-pose.pt`
 - RetinaFace の学習済み重み
 - GAZELLE の torch.hub ファイル
+- `L2CSNet_gaze360.pkl`
 - `mobileone_s0.pt`
 
 初回ロードに失敗した場合は、次を確認してください。
@@ -144,7 +145,7 @@ venv/bin/streamlit run app.py
 - `Gaze detection backend`
   - `gazelle` です。
 - `Head pose detection backend`
-  - `mobileone` です。将来の頭部姿勢推定 backend 追加に備えた設定です。
+  - デフォルトは `l2cs` です。以前の MobileOne ベースの方向推定を使う場合は `mobileone` を選びます。
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
   - 人物姿勢追跡、人物以外のオブジェクト追跡、顔検出、視線 in/out 解釈に個別に使うしきい値です。
 - `Visualization mode`
@@ -311,7 +312,7 @@ eagle.preprocess(
     object_detection_backend="yolo26x",
     face_detection_backend="retinaface",
     gaze_detection_backend="gazelle",
-    head_pose_detection_backend="mobileone",
+    head_pose_detection_backend="l2cs",
     device="cpu",
     visualization_mode="both",
     person_part_min_conf=0.0,
@@ -339,5 +340,7 @@ results = eagle.run_all()
   - https://github.com/serengil/retinaface
 - GAZELLE
   - https://github.com/fkryan/gazelle
+- L2CS-Net
+  - https://github.com/Ahmednull/L2CS-Net
 - MobileOne gaze-estimation weights
   - https://github.com/yakhyo/gaze-estimation

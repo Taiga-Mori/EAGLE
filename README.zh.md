@@ -21,7 +21,7 @@ EAGLE 是一个基于 Streamlit 的视线标注辅助工具，用于图像和视
 - 使用 YOLO detection 进行非人物对象跟踪
 - 默认使用 RetinaFace 进行人脸检测，也可以选择 MediaPipe
 - 使用 GAZELLE 进行视线热力图估计
-- 使用 MobileOne gaze 进行画面外方向估计
+- 默认使用 L2CS-Net 进行画面外方向估计，也可以选择 MobileOne gaze
 - CSV 导出以及带标注的图像/视频导出
 
 EAGLE 是标注辅助工具，并不保证输出就是真实标注。在用于研究、分析、报告或决策之前，必须检查并验证所有输出。
@@ -93,6 +93,7 @@ venv/bin/streamlit run app.py
 - `yolo26x-pose.pt`
 - RetinaFace 预训练权重
 - GAZELLE torch.hub 文件
+- `L2CSNet_gaze360.pkl`
 - `mobileone_s0.pt`
 
 如果首次加载失败，请检查：
@@ -144,7 +145,7 @@ venv/bin/streamlit run app.py
 - `Gaze detection backend`
   - `gazelle`。
 - `Head pose detection backend`
-  - `mobileone`。这个设置是为了以后扩展头部姿态估计 backend。
+  - 默认是 `l2cs`；如果要使用之前的 MobileOne 方向模型，可以选择 `mobileone`。
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
   - 分别用于人物姿态跟踪、非人物对象跟踪、人脸检测和视线 in/out 解释的阈值。
 - `Visualization mode`
@@ -311,7 +312,7 @@ eagle.preprocess(
     object_detection_backend="yolo26x",
     face_detection_backend="retinaface",
     gaze_detection_backend="gazelle",
-    head_pose_detection_backend="mobileone",
+    head_pose_detection_backend="l2cs",
     device="cpu",
     visualization_mode="both",
     person_part_min_conf=0.0,
@@ -339,5 +340,7 @@ results = eagle.run_all()
   - https://github.com/serengil/retinaface
 - GAZELLE
   - https://github.com/fkryan/gazelle
+- L2CS-Net
+  - https://github.com/Ahmednull/L2CS-Net
 - MobileOne gaze-estimation weights
   - https://github.com/yakhyo/gaze-estimation

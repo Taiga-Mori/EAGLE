@@ -21,7 +21,7 @@ EAGLE es una herramienta de apoyo para anotación de mirada, basada en Streamlit
 - Seguimiento de objetos no humanos con YOLO detection
 - Detección de rostros con RetinaFace por defecto, con MediaPipe también disponible
 - Estimación de mapas de calor de mirada con GAZELLE
-- Estimación de dirección fuera de pantalla con MobileOne gaze
+- Estimación de dirección fuera de pantalla con L2CS-Net por defecto, con MobileOne también disponible
 - Exportación CSV y exportación de imágenes/videos anotados
 
 EAGLE es una herramienta de asistencia para anotación, no una fuente garantizada de verdad terreno. Debes revisar y validar todos los resultados antes de usarlos en investigación, análisis, informes o toma de decisiones.
@@ -93,6 +93,7 @@ En el primer uso, EAGLE puede descargar y guardar en caché:
 - `yolo26x-pose.pt`
 - Pesos preentrenados de RetinaFace
 - Archivos torch.hub de GAZELLE
+- `L2CSNet_gaze360.pkl`
 - `mobileone_s0.pt`
 
 Si falla la carga inicial, comprueba:
@@ -144,7 +145,7 @@ Comportamiento del directorio de salida:
 - `Gaze detection backend`
   - `gazelle`.
 - `Head pose detection backend`
-  - `mobileone`. Este ajuste queda preparado para futuros backends de pose de cabeza.
+  - `l2cs` por defecto, o `mobileone` para el modelo de dirección anterior basado en MobileOne.
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
   - Umbrales separados para seguimiento de personas con pose, seguimiento de objetos que no son personas, detección de rostros e interpretación gaze in/out.
 - `Visualization mode`
@@ -311,7 +312,7 @@ eagle.preprocess(
     object_detection_backend="yolo26x",
     face_detection_backend="retinaface",
     gaze_detection_backend="gazelle",
-    head_pose_detection_backend="mobileone",
+    head_pose_detection_backend="l2cs",
     device="cpu",
     visualization_mode="both",
     person_part_min_conf=0.0,
@@ -339,5 +340,7 @@ Este proyecto está licenciado bajo `AGPL-3.0-or-later`. Consulta [LICENSE](LICE
   - https://github.com/serengil/retinaface
 - GAZELLE
   - https://github.com/fkryan/gazelle
+- L2CS-Net
+  - https://github.com/Ahmednull/L2CS-Net
 - MobileOne gaze-estimation weights
   - https://github.com/yakhyo/gaze-estimation
