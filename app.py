@@ -437,20 +437,34 @@ def main() -> None:
                     video_fps = resolve_video_fps(input_path)
                 except Exception:
                     video_fps = None
+                    st.warning(
+                        "Could not read the source video FPS. "
+                        "You can still enter pipeline FPS values manually."
+                    )
 
             def fps_input(label: str, state_key: str) -> float | None:
-                if video_fps is None:
-                    return None
                 raw_value = st.session_state.get(state_key)
-                saved_value = float(video_fps if raw_value is None else raw_value)
-                saved_value = min(max(saved_value, 0.1), video_fps)
+                default_value = 15.0 if video_fps is None else float(video_fps)
+                saved_value = float(default_value if raw_value is None else raw_value)
+                saved_value = max(saved_value, 0.1)
+                if video_fps is not None:
+                    saved_value = min(saved_value, float(video_fps))
+                    return float(
+                        st.number_input(
+                            label,
+                            min_value=0.1,
+                            max_value=float(video_fps),
+                            step=1.0,
+                            value=saved_value,
+                        )
+                    )
                 return float(
                     st.number_input(
                         label,
                         min_value=0.1,
-                        max_value=float(video_fps),
                         step=1.0,
                         value=saved_value,
+                        help="The source video FPS could not be read, so this value is not capped automatically.",
                     )
                 )
 
