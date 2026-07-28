@@ -312,23 +312,45 @@ class ModelManager:
                     f"Original error: {exc}"
                 ) from exc
         if self.gazelle is None or self.gazelle_transform is None:
+            is_custom_model = gaze_detection_backend != "gazelle"
             try:
-                self.gazelle, self.gazelle_transform = torch.hub.load(
+                _, self.gazelle_transform = torch.hub.load(
                     "fkryan/gazelle",
                     "gazelle_dinov2_vitl14_inout",
                     source="github",
                     skip_validation=True,
                     trust_repo=True,
                 )
+                if is_custom_model:
+                    from .constants import discover_custom_gaze_models
+                    custom_models = discover_custom_gaze_models(self.paths.custom_gaze_models_dir)
+                    if gaze_detection_backend not in custom_models:
+                        raise FileNotFoundError(f"Custom gaze model '{gaze_detection_backend}' not found in {self.paths.custom_gaze_models_dir}")
+                    model_path = custom_models[gaze_detection_backend]
+                    self.gazelle = torch.load(model_path, map_location=device, weights_only=False)
+                else:
+                    self.gazelle, _ = torch.hub.load(
+                        "fkryan/gazelle",
+                        "gazelle_dinov2_vitl14_inout",
+                        source="github",
+                        skip_validation=True,
+                        trust_repo=True,
+                    )
                 self.gazelle.eval()
             except Exception as exc:
-                raise RuntimeError(
-                    "Failed to load the GAZELLE model on first run.\n"
-                    "GAZELLE is loaded through torch.hub and may need to download model files.\n"
-                    f"Torch hub cache directory: {self.paths.torch_hub_dir}\n"
-                    "Please make sure this machine is connected to the internet and try again.\n"
-                    f"Original error: {exc}"
-                ) from exc
+                if is_custom_model:
+                    raise RuntimeError(
+                        f"Failed to load custom gaze model '{gaze_detection_backend}' from {self.paths.custom_gaze_models_dir}.\n"
+                        f"Original error: {exc}"
+                    ) from exc
+                else:
+                    raise RuntimeError(
+                        "Failed to load the GAZELLE model on first run.\n"
+                        "GAZELLE is loaded through torch.hub and may need to download model files.\n"
+                        f"Torch hub cache directory: {self.paths.torch_hub_dir}\n"
+                        "Please make sure this machine is connected to the internet and try again.\n"
+                        f"Original error: {exc}"
+                    ) from exc
         if head_pose_detection_backend == "mobileone" and (
             self.mobile_gaze is None or self.mobile_gaze_transform is None or self.loaded_device != device
         ):

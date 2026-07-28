@@ -1,8 +1,11 @@
 import json
+import subprocess
+import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
+import torch
 import yaml
 
 from .annotate import FrameAnnotator
@@ -19,7 +22,7 @@ from .exporters import AnnotationExporter
 from .gaze import FaceGazeEstimator
 from .models import ModelManager
 from .paths import PathManager
-from .progress import finish_progress, reset_progress_timers, update_progress
+from .progress import finish_progress, format_elapsed, reset_progress_timers, update_progress
 from .temporal import GazePointResolver, GazeTemporalProcessor, ObjectTrackSmoother
 from .tracking import ObjectTracker
 from .types import MediaContext, PipelineConfig
@@ -258,17 +261,46 @@ class EAGLE:
 
     def run_all(self, progress_bar=None) -> dict[str, Any]:
         reset_progress_timers()
-        person_df = self.det_persons(progress_bar=progress_bar)
-        object_df = self.det_objects(progress_bar=progress_bar)
-        face_df = self.det_faces(progress_bar=progress_bar)
-        gaze_df = self.det_gaze(progress_bar=progress_bar)
+        phase_seconds: dict[str, float] = {}
+        device = self._require_config().device
+        if device.startswith("cuda"):
+            torch.cuda.reset_peak_memory_stats(device)
+
+        def _timed(label: str, func: Callable[[], Any]) -> Any:
+            start = time.monotonic()
+            result = func()
+            phase_seconds[label] = time.monotonic() - start
+            return result
+
+        person_df = _timed("Person detection", lambda: self.det_persons(progress_bar=progress_bar))
+        object_df = _timed("Object detection", lambda: self.det_objects(progress_bar=progress_bar))
+        if person_df.empty and object_df.empty:
+            self._notify_skip(
+                progress_bar,
+                "No persons or objects were detected in this media; skipping face/gaze detection and export.",
+            )
+            elapsed_seconds = finish_progress(progress_bar)
+            summary = self._build_summary(person_df, pd.DataFrame(), phase_seconds, elapsed_seconds, device)
+            return {
+                "persons": person_df,
+                "objects": object_df,
+                "faces": pd.DataFrame(),
+                "gaze": pd.DataFrame(),
+                "media_output_paths": [],
+                "annotation": pd.DataFrame(),
+                "elapsed_seconds": elapsed_seconds,
+                "summary": summary,
+            }
+        face_df = _timed("Face detection", lambda: self.det_faces(progress_bar=progress_bar))
+        gaze_df = _timed("Gaze estimation", lambda: self.det_gaze(progress_bar=progress_bar))
         update_progress(progress_bar, 0, 1, "Creating annotation.csv...")
-        annotation_df = self.make_elan_csv()
+        annotation_df = _timed("Annotation export", self.make_elan_csv)
         update_progress(progress_bar, 1, 1, "Creating annotation.csv...")
         update_progress(progress_bar, 0, 1, "Exporting visualization...")
-        media_output_paths = self.export_visualization()
+        media_output_paths = _timed("Visualization export", self.export_visualization)
         update_progress(progress_bar, 1, 1, "Exporting visualization...")
         elapsed_seconds = finish_progress(progress_bar)
+        summary = self._build_summary(person_df, face_df, phase_seconds, elapsed_seconds, device)
         return {
             "persons": person_df,
             "objects": object_df,
@@ -277,7 +309,120 @@ class EAGLE:
             "media_output_paths": media_output_paths,
             "annotation": annotation_df,
             "elapsed_seconds": elapsed_seconds,
+            "summary": summary,
         }
+
+    def _build_summary(
+        self,
+        person_df: pd.DataFrame,
+        face_df: pd.DataFrame,
+        phase_seconds: dict[str, float],
+        total_elapsed_seconds: float,
+        device: str,
+    ) -> dict[str, Any]:
+        person_count = int(person_df["track_id"].nunique()) if not person_df.empty else 0
+
+        total_faces_found = 0
+        detected_without_fallback = 0
+        fallback_used = 0
+        success_rate_without_fallback: float | None = None
+        if not face_df.empty and "face_x1" in face_df.columns:
+            found_faces = face_df[face_df["face_x1"].notna()]
+            total_faces_found = int(len(found_faces))
+            if total_faces_found > 0:
+                detected_without_fallback = int((found_faces["face_conf"].astype(float) > 0.0).sum())
+                fallback_used = total_faces_found - detected_without_fallback
+                success_rate_without_fallback = detected_without_fallback / total_faces_found
+
+        summary = {
+            "total_elapsed_seconds": round(total_elapsed_seconds, 2),
+            "phase_seconds": {label: round(seconds, 2) for label, seconds in phase_seconds.items()},
+            "person_count": person_count,
+            "face_detection": {
+                "total_faces_found": total_faces_found,
+                "detected_without_fallback": detected_without_fallback,
+                "fallback_used": fallback_used,
+                "success_rate_without_fallback": success_rate_without_fallback,
+            },
+            "gpu": self._gpu_stats(device),
+        }
+        self._print_summary(summary)
+        self._write_summary(summary)
+        return summary
+
+    def _write_summary(self, summary: dict[str, Any]) -> None:
+        output_dir = self._require_config().output_dir
+        summary_path = output_dir / "summary.json"
+        summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False))
+
+    def _gpu_stats(self, device: str) -> dict[str, Any] | None:
+        if not device.startswith("cuda"):
+            return None
+        index = int(device.split(":", 1)[1]) if ":" in device else 0
+        stats: dict[str, Any] = {
+            "device": device,
+            "peak_allocated_gb": round(torch.cuda.max_memory_allocated(index) / (1024**3), 2),
+            "peak_reserved_gb": round(torch.cuda.max_memory_reserved(index) / (1024**3), 2),
+        }
+        try:
+            result = subprocess.run(
+                [
+                    "nvidia-smi",
+                    f"--id={index}",
+                    "--query-gpu=name,utilization.gpu,memory.used,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=True,
+            )
+            name, util, mem_used, mem_total = (part.strip() for part in result.stdout.strip().split(","))
+            stats.update(
+                {
+                    "name": name,
+                    "utilization_percent": float(util),
+                    "memory_used_mib": float(mem_used),
+                    "memory_total_mib": float(mem_total),
+                }
+            )
+        except Exception:
+            pass
+        return stats
+
+    def _print_summary(self, summary: dict[str, Any]) -> None:
+        print("\n" + " Pipeline Summary ".center(72, "="), flush=True)
+        print(f"  Total elapsed: {format_elapsed(summary['total_elapsed_seconds'])}", flush=True)
+        print("  Phase timings:", flush=True)
+        for label, seconds in summary["phase_seconds"].items():
+            print(f"    - {label}: {format_elapsed(seconds)}", flush=True)
+        print(f"  Detected persons: {summary['person_count']}", flush=True)
+        face_stats = summary["face_detection"]
+        if face_stats["total_faces_found"] > 0:
+            rate = face_stats["success_rate_without_fallback"]
+            print(
+                "  Face detection success rate (excluding pose fallback): "
+                f"{rate:.1%} ({face_stats['detected_without_fallback']}/{face_stats['total_faces_found']}, "
+                f"fallback used {face_stats['fallback_used']} times)",
+                flush=True,
+            )
+        else:
+            print("  Face detection: no faces found", flush=True)
+        gpu_stats = summary.get("gpu")
+        if gpu_stats is not None:
+            gpu_line = (
+                f"  GPU ({gpu_stats['device']}"
+                + (f", {gpu_stats['name']}" if "name" in gpu_stats else "")
+                + f"): peak allocated {gpu_stats['peak_allocated_gb']:.2f} GB, "
+                f"peak reserved {gpu_stats['peak_reserved_gb']:.2f} GB"
+            )
+            if "utilization_percent" in gpu_stats:
+                gpu_line += (
+                    f", current util {gpu_stats['utilization_percent']:.0f}%, "
+                    f"mem {gpu_stats['memory_used_mib']:.0f}/{gpu_stats['memory_total_mib']:.0f} MiB"
+                )
+            print(gpu_line, flush=True)
+        print("=" * 72, flush=True)
 
     def _require_config(self) -> PipelineConfig:
         if self.config is None:

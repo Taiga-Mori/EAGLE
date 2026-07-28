@@ -144,3 +144,58 @@ GAZE_DETECTION_BACKENDS = {"gazelle"}
 DEFAULT_GAZE_DETECTION_BACKEND = "gazelle"
 HEAD_POSE_DETECTION_BACKENDS = {"l2cs", "mobileone"}
 DEFAULT_HEAD_POSE_DETECTION_BACKEND = "l2cs"
+
+
+def discover_custom_gaze_models(custom_models_dir) -> dict[str, str]:
+    """Discover custom GazeLLE .pt files in ~/.EAGLE/custom/gaze/"""
+    if not custom_models_dir.exists():
+        return {}
+    models = {}
+    for pt_file in custom_models_dir.glob("*.pt"):
+        model_name = pt_file.stem
+        models[model_name] = str(pt_file)
+    return models
+
+
+def discover_custom_person_models(custom_models_dir) -> dict[str, str]:
+    """Discover custom person detection .pt files in ~/.EAGLE/custom/person/"""
+    if not custom_models_dir.exists():
+        return {}
+    models = {}
+    for pt_file in custom_models_dir.glob("*.pt"):
+        model_name = pt_file.stem
+        models[model_name] = str(pt_file)
+    return models
+
+
+def discover_custom_object_models(custom_models_dir) -> dict[str, str]:
+    """Discover custom object detection .pt files in ~/.EAGLE/custom/object/"""
+    if not custom_models_dir.exists():
+        return {}
+    models = {}
+    for pt_file in custom_models_dir.glob("*.pt"):
+        model_name = pt_file.stem
+        models[model_name] = str(pt_file)
+    return models
+
+
+def discover_custom_face_models(custom_models_dir) -> dict[str, str]:
+    """Discover custom face detection .pt files in ~/.EAGLE/custom/face/"""
+    if not custom_models_dir.exists():
+        return {}
+    models = {}
+    for pt_file in custom_models_dir.glob("*.pt"):
+        model_name = pt_file.stem
+        models[model_name] = str(pt_file)
+    return models
+
+
+def discover_custom_headpose_models(custom_models_dir) -> dict[str, str]:
+    """Discover custom head pose detection .pt files in ~/.EAGLE/custom/headpose/"""
+    if not custom_models_dir.exists():
+        return {}
+    models = {}
+    for pt_file in custom_models_dir.glob("*.pt"):
+        model_name = pt_file.stem
+        models[model_name] = str(pt_file)
+    return models

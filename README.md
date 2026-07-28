@@ -144,7 +144,7 @@ Output directory behavior:
 - `Face detection backend`
   - `retinaface` by default, or `mediapipe` when you want to use MediaPipe.
 - `Gaze detection backend`
-  - `gazelle`.
+  - `gazelle` (official pretrained model), or custom fine-tuned models placed in `~/.EAGLE/custom/gaze/`.
 - `Head pose detection backend`
   - `l2cs` by default, or `mobileone` for the previous MobileOne-based direction model.
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
@@ -283,6 +283,67 @@ Temporary folders such as `temp/` and `heatmaps/` are removed after export.
 - `start_time`
 - `end_time`
 - `gaze`
+
+## Custom Gaze Models
+
+You can use your own fine-tuned GAZELLE models instead of the official pretrained model.
+
+### Directory Structure
+
+Custom models are automatically discovered from `~/.EAGLE/custom/gaze/`:
+
+```
+~/.EAGLE/
+├── custom/
+│   ├── gaze/          # Custom gaze models (implemented)
+│   ├── person/        # For future person detection models
+│   ├── object/        # For future object detection models
+│   ├── face/          # For future face detection models
+│   └── headpose/      # For future head pose detection models
+└── [cache & models]
+```
+
+### Usage
+
+1. **Place your fine-tuned model:**
+   ```bash
+   cp path/to/your/model.pt ~/.EAGLE/custom/gaze/my_custom_model.pt
+   ```
+
+2. **Select in GUI:**
+   - Open EAGLE
+   - Under "Detailed Settings" → "Gaze detection backend"
+   - Your model `my_custom_model` will appear as a selectable option
+
+3. **Use in Python code:**
+   ```python
+   from eagle import EAGLE
+   from eagle.types import PipelineConfig
+   
+   eagle = EAGLE()
+   config = PipelineConfig(
+       media_path="input.mp4",
+       output_dir="output",
+       gaze_detection_backend="my_custom_model",  # Use by model name
+       # ... other settings ...
+   )
+   eagle.run(config)
+   ```
+
+### Training Custom Models
+
+To fine-tune GAZELLE on your own data:
+
+1. **Use ADOSGazeAnnotation or a similar annotation tool** to create labeled gaze data
+2. **Train with GazeLLE:**
+   - See: https://github.com/fkryan/gazelle
+3. **Export the best checkpoint as `.pt`** and place it in `~/.EAGLE/custom/gaze/`
+
+### Format Requirements
+
+- File format: `.pt` (PyTorch checkpoint)
+- Model type: GAZELLE-compatible (DINOv2-based gaze estimation model)
+- Architecture: Must have the same input/output signature as the official model
 
 ## Development Entry Points
 - [`app.py`](app.py)

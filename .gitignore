@@ -218,3 +218,4 @@ releases/
 test.ipynb
 *.pt
 botsort_temp.yaml
+scripts/

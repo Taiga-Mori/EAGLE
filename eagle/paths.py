@@ -11,6 +11,15 @@ class PathManager:
     def __init__(self) -> None:
         app_dir = Path.home() / ".EAGLE"
         app_dir.mkdir(exist_ok=True)
+        custom_dir = app_dir / "custom"
+        custom_dir.mkdir(exist_ok=True)
+        custom_gaze_models_dir = custom_dir / "gaze"
+        custom_person_models_dir = custom_dir / "person"
+        custom_object_models_dir = custom_dir / "object"
+        custom_face_models_dir = custom_dir / "face"
+        custom_headpose_models_dir = custom_dir / "headpose"
+        for model_dir in [custom_gaze_models_dir, custom_person_models_dir, custom_object_models_dir, custom_face_models_dir, custom_headpose_models_dir]:
+            model_dir.mkdir(parents=True, exist_ok=True)
         torch_home = app_dir / "torch"
         torch_hub_dir = torch_home / "hub"
         torch_hub_dir.mkdir(parents=True, exist_ok=True)
@@ -41,6 +50,11 @@ class PathManager:
             botsort_template_path=working_dir / "config" / "botsort.yaml",
             botsort_runtime_path=working_dir / "config" / "botsort_temp.yaml",
             ffmpeg_path=ffmpeg_path,
+            custom_gaze_models_dir=custom_gaze_models_dir,
+            custom_person_models_dir=custom_dir / "person",
+            custom_object_models_dir=custom_dir / "object",
+            custom_face_models_dir=custom_dir / "face",
+            custom_headpose_models_dir=custom_dir / "headpose",
         )
 
     def get(self) -> AppPaths:

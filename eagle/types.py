@@ -21,6 +21,11 @@ class AppPaths:
     botsort_template_path: Path
     botsort_runtime_path: Path
     ffmpeg_path: Path
+    custom_gaze_models_dir: Path
+    custom_person_models_dir: Path
+    custom_object_models_dir: Path
+    custom_face_models_dir: Path
+    custom_headpose_models_dir: Path
 
 
 @dataclass

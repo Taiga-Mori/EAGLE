@@ -742,12 +742,14 @@ def main() -> None:
                 )
 
             with gaze_tab:
-                gaze_detection_options = list(GAZE_DETECTION_BACKENDS)
+                from eagle.constants import discover_custom_gaze_models
+                custom_gaze_models = discover_custom_gaze_models(Path.home() / ".EAGLE" / "custom" / "gaze")
+                gaze_detection_options = list(GAZE_DETECTION_BACKENDS) + sorted(custom_gaze_models.keys())
                 saved_gaze_detection_backend = st.session_state.get(
                     "gaze_detection_backend",
                     DEFAULT_GAZE_DETECTION_BACKEND,
                 )
-                if saved_gaze_detection_backend not in GAZE_DETECTION_BACKENDS:
+                if saved_gaze_detection_backend not in gaze_detection_options:
                     saved_gaze_detection_backend = DEFAULT_GAZE_DETECTION_BACKEND
                 gaze_detection_backend = st.selectbox(
                     "Gaze detection backend",
@@ -969,6 +971,43 @@ def main() -> None:
             st.write("Visualization outputs:")
             for line in output_paths_to_lines(output_paths):
                 st.write(f"- `{line}`")
+
+        summary = results.get("summary")
+        if summary is not None:
+            with st.expander("Run summary", expanded=True):
+                st.write(f"Detected persons: {summary['person_count']}")
+
+                phase_seconds = summary.get("phase_seconds") or {}
+                if phase_seconds:
+                    st.write("Phase timings:")
+                    for label, seconds in phase_seconds.items():
+                        st.write(f"- {label}: {format_elapsed(float(seconds))}")
+
+                face_stats = summary.get("face_detection") or {}
+                if face_stats.get("total_faces_found", 0) > 0:
+                    rate = face_stats.get("success_rate_without_fallback")
+                    st.write(
+                        "Face detection success rate (excluding pose fallback): "
+                        f"{rate:.1%} ({face_stats['detected_without_fallback']}/{face_stats['total_faces_found']}, "
+                        f"fallback used {face_stats['fallback_used']} times)"
+                    )
+                else:
+                    st.write("Face detection: no faces found")
+
+                gpu_stats = summary.get("gpu")
+                if gpu_stats is not None:
+                    gpu_line = (
+                        f"GPU ({gpu_stats['device']}"
+                        + (f", {gpu_stats['name']}" if "name" in gpu_stats else "")
+                        + f"): peak allocated {gpu_stats['peak_allocated_gb']:.2f} GB, "
+                        f"peak reserved {gpu_stats['peak_reserved_gb']:.2f} GB"
+                    )
+                    if "utilization_percent" in gpu_stats:
+                        gpu_line += (
+                            f", current util {gpu_stats['utilization_percent']:.0f}%, "
+                            f"mem {gpu_stats['memory_used_mib']:.0f}/{gpu_stats['memory_total_mib']:.0f} MiB"
+                        )
+                    st.write(gpu_line)
 
         col1, col2 = st.columns(2)
         with col1:
