@@ -702,7 +702,7 @@ def main() -> None:
                     st.caption(f"Tracking {len(selected_object_classes)} classes: {preview}{suffix}")
 
             with face_tab:
-                face_detection_options = ["retinaface", "mediapipe"]
+                face_detection_options = ["retinaface", "scrfd", "mediapipe"]
                 saved_face_detection_backend = st.session_state.get(
                     "face_detection_backend",
                     DEFAULT_FACE_DETECTION_BACKEND,

@@ -27,6 +27,7 @@ except Exception:
 
 from .l2cs import l2cs_resnet50
 from .mobile_gaze import mobileone_s0_gaze
+from .scrfd import SCRFDFaceDetector
 from .constants import (
     DEFAULT_FACE_DETECTION_BACKEND,
     DEFAULT_GAZE_DETECTION_BACKEND,
@@ -44,6 +45,9 @@ MEDIAPIPE_FACE_DETECTOR_URL = (
     "https://storage.googleapis.com/mediapipe-models/face_detector/"
     "blaze_face_short_range/float16/1/blaze_face_short_range.tflite"
 )
+SCRFD_MODEL_PACK_URL = "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip"
+SCRFD_MODEL_PACK_MEMBER = "det_10g.onnx"
+SCRFD_MAX_SIZE = 960
 L2CS_GAZE_URL = (
     "https://huggingface.co/dorni/SpeakerVid-5M-data-curation-models/resolve/"
     "5c6e04d7fa3321e6228e79162f8ec98466bf308a/L2CSNet_gaze360.pkl?download=true"
@@ -77,6 +81,7 @@ class ModelManager:
         self.yolo: YOLO | None = None
         self.yolo_pose: YOLO | None = None
         self.retinaface = None
+        self.scrfd: SCRFDFaceDetector | None = None
         self.mediapipe_face_detector = None
         self.mediapipe_face_detector_api: str | None = None
         self.gazelle = None
@@ -204,6 +209,24 @@ class ModelManager:
             "MediaPipe face detector model",
         )
 
+    def ensure_scrfd_weights(self) -> None:
+        destination = self.paths.scrfd_face_detector_path
+        if destination.is_file():
+            return
+        import zipfile
+
+        archive_path = destination.with_suffix(".zip.part")
+        try:
+            self._ensure_download(archive_path, SCRFD_MODEL_PACK_URL, "SCRFD face detector model pack")
+            with zipfile.ZipFile(archive_path) as archive:
+                member = next(name for name in archive.namelist() if name.endswith(SCRFD_MODEL_PACK_MEMBER))
+                temp_path = destination.with_suffix(".onnx.part")
+                with archive.open(member) as source, temp_path.open("wb") as output:
+                    shutil.copyfileobj(source, output)
+                temp_path.replace(destination)
+        finally:
+            archive_path.unlink(missing_ok=True)
+
     def _ensure_download(self, destination, url: str, label: str) -> None:
         if destination.is_file():
             return
@@ -309,6 +332,16 @@ class ModelManager:
                     "Failed to load RetinaFace on first run.\n"
                     "RetinaFace may need to download pretrained weights.\n"
                     "Please make sure this machine is connected to the internet and try again.\n"
+                    f"Original error: {exc}"
+                ) from exc
+        if face_detection_backend == "scrfd" and (self.scrfd is None or self.loaded_device != device):
+            try:
+                self.ensure_scrfd_weights()
+                self.scrfd = SCRFDFaceDetector(self.paths.scrfd_face_detector_path, device, max_size=SCRFD_MAX_SIZE)
+            except Exception as exc:
+                raise RuntimeError(
+                    "Failed to load the SCRFD face detector.\n"
+                    "SCRFD needs onnxruntime (onnxruntime-gpu for CUDA) and downloads its weights on first run.\n"
                     f"Original error: {exc}"
                 ) from exc
         if self.gazelle is None or self.gazelle_transform is None:

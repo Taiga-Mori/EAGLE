@@ -31,7 +31,10 @@ class AnnotationExporter:
         return self._make_point_video(context)
 
     def _make_point_video(self, context: MediaContext) -> Path:
-        silent_video = context.output_dir / "temp.mp4"
+        # Encode and mux inside temp_dir, then move the finished file. Long ffmpeg writes straight
+        # onto slow/network-backed output folders (e.g. WSL /mnt/c) can fail mid-file.
+        silent_video = context.temp_dir / "temp.mp4"
+        merged_video = context.temp_dir / "all_points.mp4"
         output_video = context.output_dir / "all_points.mp4"
         frame_name_width = len(str(context.total_frames - 1))
         self._run_h264_encode(
@@ -65,9 +68,11 @@ class AnnotationExporter:
             merge_command.extend(["-c:a", "copy", "-map", "1:a:0"])
         else:
             merge_command.append("-an")
-        merge_command.append(str(output_video))
+        merge_command.append(str(merged_video))
         self._run_ffmpeg(merge_command, "merging the original audio into the annotated point video")
         silent_video.unlink(missing_ok=True)
+        output_video.unlink(missing_ok=True)
+        shutil.move(str(merged_video), str(output_video))
         shutil.rmtree(context.temp_dir, ignore_errors=True)
         return output_video
 
@@ -164,15 +169,21 @@ class AnnotationExporter:
             if key in face_keys:
                 valid_gaze_rows.append(gaze_row)
         valid_gaze_df = pd.DataFrame(valid_gaze_rows)
+        # Split per frame once; filtering the full tables for every gaze row is quadratic on long videos.
+        face_by_frame = {int(frame_idx): group for frame_idx, group in face_df.groupby("frame_idx")}
+        object_by_frame = {int(frame_idx): group for frame_idx, group in object_df.groupby("frame_idx")}
+        empty_face_df = face_df.iloc[0:0]
+        empty_object_df = object_df.iloc[0:0]
         for _, gaze_row in valid_gaze_df.iterrows():
+            frame_idx = int(gaze_row["frame_idx"])
             target_rows.append(
                 {
-                    "frame_idx": int(gaze_row["frame_idx"]),
+                    "frame_idx": frame_idx,
                     "track_id": str(gaze_row["track_id"]),
                     "target": self._resolve_target(
                         gaze_row,
-                        object_df,
-                        face_df,
+                        object_by_frame.get(frame_idx, empty_object_df),
+                        face_by_frame.get(frame_idx, empty_face_df),
                         det_thresh,
                         gaze_target_radius,
                         person_part_distance_scale,

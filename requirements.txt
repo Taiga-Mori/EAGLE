@@ -3,6 +3,8 @@ huggingface_hub==1.4.1
 lap==0.5.12
 mediapipe==0.10.33
 numpy==2.2.6
+onnxruntime==1.23.2; sys_platform == "darwin"
+onnxruntime-gpu==1.23.2; sys_platform != "darwin"
 opencv-python==4.13.0.92
 pandas==2.3.3
 pillow==12.1.1

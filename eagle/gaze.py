@@ -1474,6 +1474,9 @@ class FaceGazeEstimator:
             assert self.models.retinaface is not None
             raw_faces = self.models.retinaface.predict_jsons(frame)
             return [face for face in raw_faces if float(face["score"]) >= det_thresh and face.get("bbox")]
+        if face_detection_backend == "scrfd":
+            assert self.models.scrfd is not None
+            return self.models.scrfd.detect(frame, det_thresh)
         if face_detection_backend == "mediapipe":
             if self.models.mediapipe_face_detector is None:
                 raise RuntimeError("MediaPipe face detection is not initialized.")
