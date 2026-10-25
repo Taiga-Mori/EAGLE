@@ -788,6 +788,15 @@ def main() -> None:
                         value=int(st.session_state.get("gaze_smoothing_window", 5)),
                     )
                 )
+                gaze_kalman_window = int(
+                    st.number_input(
+                        "Gaze Kalman filter window (0=disabled)",
+                        min_value=0,
+                        step=1,
+                        value=int(st.session_state.get("gaze_kalman_window", 5)),
+                        help="Reduces temporal jitter. 0 disables Kalman filtering.",
+                    )
+                )
                 visualization_mode = st.selectbox(
                     "Visualization mode",
                     options=["both", "point", "heatmap"],
@@ -856,6 +865,7 @@ def main() -> None:
         st.session_state.object_smoothing_window = object_smoothing_window
         st.session_state.face_smoothing_window = face_smoothing_window
         st.session_state.gaze_smoothing_window = gaze_smoothing_window
+        st.session_state.gaze_kalman_window = gaze_kalman_window
         st.session_state.person_target_fps = person_target_fps
         st.session_state.object_target_fps = object_target_fps
         st.session_state.face_target_fps = face_target_fps
@@ -929,6 +939,7 @@ def main() -> None:
                 object_smoothing_window=st.session_state.object_smoothing_window,
                 face_smoothing_window=st.session_state.face_smoothing_window,
                 gaze_smoothing_window=st.session_state.gaze_smoothing_window,
+                gaze_kalman_window=st.session_state.gaze_kalman_window,
                 selected_object_classes=st.session_state.selected_object_classes,
                 reuse_cached_persons=st.session_state.reuse_cached_persons,
                 reuse_cached_objects=st.session_state.reuse_cached_objects,

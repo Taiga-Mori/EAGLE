@@ -305,8 +305,11 @@ class ModelManager:
                     f"Original error: {exc}"
                 ) from exc
             print(f"Using CUDA device {device}: {torch.cuda.get_device_name(cuda_device.index)}", flush=True)
-        if gaze_detection_backend not in GAZE_DETECTION_BACKENDS:
-            raise ValueError(f"Unsupported gaze detection backend '{gaze_detection_backend}'.")
+        from .constants import discover_custom_gaze_models
+        custom_gaze_models = discover_custom_gaze_models(self.paths.custom_gaze_models_dir)
+        valid_gaze_backends = set(GAZE_DETECTION_BACKENDS) | set(custom_gaze_models.keys())
+        if gaze_detection_backend not in valid_gaze_backends:
+            raise ValueError(f"Unsupported gaze detection backend '{gaze_detection_backend}'. Available: {sorted(valid_gaze_backends)}")
         if head_pose_detection_backend not in HEAD_POSE_DETECTION_BACKENDS:
             raise ValueError(f"Unsupported head pose detection backend '{head_pose_detection_backend}'.")
         self.ensure_yolo_object_weights(object_detection_backend)
@@ -360,7 +363,21 @@ class ModelManager:
                     if gaze_detection_backend not in custom_models:
                         raise FileNotFoundError(f"Custom gaze model '{gaze_detection_backend}' not found in {self.paths.custom_gaze_models_dir}")
                     model_path = custom_models[gaze_detection_backend]
-                    self.gazelle = torch.load(model_path, map_location=device, weights_only=False)
+                    loaded = torch.load(model_path, map_location=device, weights_only=False)
+                    if isinstance(loaded, dict):
+                        arch = "gazelle_dinov2_vitb14_inout"
+                        if "vitl14" in model_path.lower():
+                            arch = "gazelle_dinov2_vitl14_inout"
+                        self.gazelle, _ = torch.hub.load(
+                            "fkryan/gazelle",
+                            arch,
+                            source="github",
+                            skip_validation=True,
+                            trust_repo=True,
+                        )
+                        self.gazelle.load_state_dict(loaded, strict=False)
+                    else:
+                        self.gazelle = loaded
                 else:
                     self.gazelle, _ = torch.hub.load(
                         "fkryan/gazelle",

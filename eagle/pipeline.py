@@ -20,6 +20,7 @@ from .constants import (
 )
 from .exporters import AnnotationExporter
 from .gaze import FaceGazeEstimator
+from .metacache import load_meta_snapshot, meta_snapshot_matches
 from .models import ModelManager
 from .paths import PathManager
 from .progress import finish_progress, format_elapsed, reset_progress_timers, update_progress
@@ -86,6 +87,7 @@ class EAGLE:
         object_smoothing_window: int = 5,
         face_smoothing_window: int = 5,
         gaze_smoothing_window: int = 5,
+        gaze_kalman_window: int = 5,
         selected_object_classes: list[str] | None = None,
         reuse_cached_persons: bool = True,
         reuse_cached_objects: bool = True,
@@ -124,6 +126,7 @@ class EAGLE:
             object_smoothing_window=object_smoothing_window,
             face_smoothing_window=face_smoothing_window,
             gaze_smoothing_window=gaze_smoothing_window,
+            gaze_kalman_window=gaze_kalman_window,
             selected_object_classes=selected_object_classes,
             reuse_cached_persons=reuse_cached_persons,
             reuse_cached_objects=reuse_cached_objects,
@@ -232,6 +235,7 @@ class EAGLE:
             person_part_distance_scale=config.person_part_distance_scale,
             person_part_min_conf=config.person_part_min_conf,
             gaze_smoothing_window=config.gaze_smoothing_window,
+            gaze_kalman_window=config.gaze_kalman_window,
             selected_object_classes=config.selected_object_classes,
             reuse_cached_gaze=config.reuse_cached_gaze,
             progress_bar=progress_bar,
@@ -512,11 +516,9 @@ class EAGLE:
             return None
         if str(meta.get("face_detection_backend", "")) != str(config.face_detection_backend):
             return None
-        persons_mtime = context.persons_path.stat().st_mtime_ns if context.persons_path.exists() else -1
-        objects_mtime = context.objects_path.stat().st_mtime_ns if context.objects_path.exists() else -1
-        if int(meta.get("persons_mtime_ns", -1)) != persons_mtime:
+        if not meta_snapshot_matches(meta.get("persons_meta"), load_meta_snapshot(context.persons_meta_path)):
             return None
-        if int(meta.get("objects_mtime_ns", -1)) != objects_mtime:
+        if not meta_snapshot_matches(meta.get("objects_meta"), load_meta_snapshot(context.objects_meta_path)):
             return None
         return cached_df.reset_index(drop=True)
 

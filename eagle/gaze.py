@@ -1,6 +1,6 @@
 import json
 import shutil
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import cv2
@@ -12,10 +12,16 @@ from PIL import Image
 from .annotate import FrameAnnotator
 from .body_parts import build_person_part_shapes, resolve_person_part_label
 from .constants import FACE_COLUMNS, GAZE_COLUMNS
+from .metacache import load_meta_snapshot, meta_snapshot_matches
 from .models import ModelManager
 from .progress import update_progress
 from .temporal import GazePointResolver, GazeTemporalProcessor
 from .types import FaceDetection, GazePoint, GazeRecord, MediaContext
+
+# Unfiltered inout values stored alongside the heatmaps so that the Kalman window can be
+# changed without re-running gaze estimation. Not valid heatmap keys, hence the prefix.
+RAW_INOUT_KEYS = "__raw_inout_keys__"
+RAW_INOUT_VALUES = "__raw_inout_values__"
 
 
 class FaceGazeEstimator:
@@ -150,6 +156,7 @@ class FaceGazeEstimator:
         person_part_distance_scale: float,
         person_part_min_conf: float,
         gaze_smoothing_window: int,
+        gaze_kalman_window: int,
         selected_object_classes: list[str],
         reuse_cached_gaze: bool = False,
         progress_bar=None,
@@ -164,10 +171,12 @@ class FaceGazeEstimator:
             self._save_heatmap_cache(
                 context,
                 {},
+                {},
                 gaze_detection_backend,
                 head_pose_detection_backend,
                 gaze_point_method,
                 gaze_smoothing_window,
+                gaze_kalman_window,
                 det_thresh,
             )
             return gaze_df
@@ -186,6 +195,7 @@ class FaceGazeEstimator:
                 person_part_min_conf,
                 gaze_point_method,
                 gaze_smoothing_window,
+                gaze_kalman_window,
                 selected_object_classes,
                 progress_bar,
             )
@@ -213,8 +223,9 @@ class FaceGazeEstimator:
                 selected_object_classes=selected_object_classes,
                 progress_bar=progress_bar,
             )
+            raw_inout_by_frame = self._raw_inout_from_gaze_maps(gaze_maps)
         else:
-            gaze_maps = self._estimate_video_from_faces(
+            gaze_maps, raw_inout_by_frame = self._estimate_video_from_faces(
                 context=context,
                 object_df=object_df,
                 face_maps_by_frame=face_maps_by_frame,
@@ -228,6 +239,7 @@ class FaceGazeEstimator:
                 person_part_distance_scale=person_part_distance_scale,
                 person_part_min_conf=person_part_min_conf,
                 gaze_smoothing_window=gaze_smoothing_window,
+                gaze_kalman_window=gaze_kalman_window,
                 records=records,
                 selected_object_classes=selected_object_classes,
                 progress_bar=progress_bar,
@@ -239,10 +251,12 @@ class FaceGazeEstimator:
         self._save_heatmap_cache(
             context,
             gaze_maps,
+            raw_inout_by_frame,
             gaze_detection_backend,
             head_pose_detection_backend,
             gaze_point_method,
             gaze_smoothing_window,
+            gaze_kalman_window,
             det_thresh,
         )
         self._update_progress(progress_bar, 1, 1, "Saving gaze outputs...")
@@ -376,10 +390,11 @@ class FaceGazeEstimator:
         person_part_distance_scale: float,
         person_part_min_conf: float,
         gaze_smoothing_window: int,
+        gaze_kalman_window: int,
         records: list[dict],
         selected_object_classes: list[str],
         progress_bar=None,
-    ) -> dict[int, dict[int, GazePoint]]:
+    ) -> tuple[dict[int, dict[int, GazePoint]], dict[int, dict[str, float]]]:
         sparse_gaze_by_frame: dict[int, dict[int, GazePoint]] = {}
         self._collect_sparse_gazes(
             context,
@@ -439,6 +454,8 @@ class FaceGazeEstimator:
                 required_offscreen_frames,
             )
         self._update_progress(progress_bar, 1, 1, "Smoothing off-screen directions...")
+        raw_inout_by_frame = self._raw_inout_from_gaze_maps(dense_gaze_by_frame)
+        self._apply_kalman_gaze_filter(dense_gaze_by_frame, gaze_kalman_window)
         self._render_video_outputs(
             context,
             object_df,
@@ -459,7 +476,7 @@ class FaceGazeEstimator:
             offscreen_angles_by_frame,
             progress_bar,
         )
-        return dense_gaze_by_frame
+        return dense_gaze_by_frame, raw_inout_by_frame
 
     def _collect_offscreen_estimates_video(
         self,
@@ -923,6 +940,7 @@ class FaceGazeEstimator:
         person_part_min_conf: float,
         gaze_point_method: str,
         gaze_smoothing_window: int,
+        gaze_kalman_window: int,
         selected_object_classes: list[str],
         progress_bar=None,
     ) -> pd.DataFrame | None:
@@ -955,28 +973,45 @@ class FaceGazeEstimator:
             return None
         if str(gaze_meta.get("head_pose_detection_backend", "")) != str(head_pose_detection_backend):
             return None
-        if int(gaze_meta.get("faces_mtime_ns", -1)) != context.faces_path.stat().st_mtime_ns:
+        if not meta_snapshot_matches(gaze_meta.get("faces_meta"), load_meta_snapshot(context.faces_meta_path)):
+            return None
+        raw_inout = self._load_raw_inout_cache(context)
+        if raw_inout is None:
             return None
 
         cached_method = str(gaze_meta.get("gaze_point_method", ""))
-        if cached_method == gaze_point_method:
+        cached_kalman_window = int(gaze_meta.get("gaze_kalman_window", -1))
+        recomputed: list[str] = []
+        if cached_method != gaze_point_method:
+            recomputed.append(f"gaze points with '{gaze_point_method}'")
+        if cached_kalman_window != int(gaze_kalman_window):
+            recomputed.append(f"Kalman filter with window {int(gaze_kalman_window)}")
+        if recomputed:
             self._notify_skip(
                 progress_bar,
-                "Skipping gaze estimation: reusing cached gaze.csv and gaze_heatmaps.npz.",
+                f"Skipping gaze estimation: reusing cached gaze_heatmaps.npz and recalculating {' and '.join(recomputed)}.",
             )
         else:
             self._notify_skip(
                 progress_bar,
-                (
-                    "Skipping gaze estimation: reusing cached gaze_heatmaps.npz "
-                    f"and recalculating gaze points with '{gaze_point_method}'."
-                ),
+                "Skipping gaze estimation: reusing cached gaze.csv and gaze_heatmaps.npz.",
             )
 
         frame_width, frame_height = self._resolve_media_size(context)
         dense_gaze_by_frame = self._load_heatmaps(context, gaze_df, frame_width, frame_height, gaze_point_method)
+        self._restore_raw_inout(dense_gaze_by_frame, raw_inout)
+        self._apply_kalman_gaze_filter(dense_gaze_by_frame, gaze_kalman_window)
         gaze_df = self._rebuild_gaze_df_from_dense_heatmaps(gaze_df, dense_gaze_by_frame)
         gaze_df.to_csv(context.gaze_path, index=False)
+        self._write_gaze_meta(
+            context,
+            gaze_detection_backend,
+            head_pose_detection_backend,
+            gaze_point_method,
+            gaze_smoothing_window,
+            gaze_kalman_window,
+            det_thresh,
+        )
         if context.media_type == "image":
             self._render_cached_image(
                 context,
@@ -1139,30 +1174,61 @@ class FaceGazeEstimator:
         self,
         context: MediaContext,
         dense_gaze_by_frame: dict[int, dict[int, GazePoint]],
+        raw_inout_by_frame: dict[int, dict[str, float]],
         gaze_detection_backend: str,
         head_pose_detection_backend: str,
         gaze_point_method: str,
         gaze_smoothing_window: int,
+        gaze_kalman_window: int,
         det_thresh: float,
     ) -> None:
         arrays: dict[str, np.ndarray] = {}
         for frame_idx, gaze_map in dense_gaze_by_frame.items():
             for track_id, gaze in gaze_map.items():
                 arrays[f"frame_{frame_idx}_track_{track_id}"] = gaze.heatmap.astype(np.float32)
+        raw_keys: list[str] = []
+        raw_values: list[float] = []
+        for frame_idx, inout_map in raw_inout_by_frame.items():
+            for track_id, inout in inout_map.items():
+                raw_keys.append(f"frame_{frame_idx}_track_{track_id}")
+                raw_values.append(float(inout))
+        arrays[RAW_INOUT_KEYS] = np.array(raw_keys, dtype=np.str_) if raw_keys else np.empty(0, dtype=np.str_)
+        arrays[RAW_INOUT_VALUES] = np.array(raw_values, dtype=np.float32)
         np.savez_compressed(context.gaze_heatmaps_path, **arrays)
+        self._write_gaze_meta(
+            context,
+            gaze_detection_backend,
+            head_pose_detection_backend,
+            gaze_point_method,
+            gaze_smoothing_window,
+            gaze_kalman_window,
+            det_thresh,
+        )
+
+    def _write_gaze_meta(
+        self,
+        context: MediaContext,
+        gaze_detection_backend: str,
+        head_pose_detection_backend: str,
+        gaze_point_method: str,
+        gaze_smoothing_window: int,
+        gaze_kalman_window: int,
+        det_thresh: float,
+    ) -> None:
         with context.gaze_meta_path.open("w", encoding="utf-8") as file:
             json.dump(
                 {
                     "gaze_point_method": gaze_point_method,
                     "gaze_detection_backend": gaze_detection_backend,
                     "gaze_smoothing_window": gaze_smoothing_window,
+                    "gaze_kalman_window": int(gaze_kalman_window),
                     "gaze_stride": int(context.gaze_stride),
                     "head_pose_stride": int(context.head_pose_stride),
                     "det_thresh": float(det_thresh),
                     "head_pose_detection_backend": head_pose_detection_backend,
                     "media_path": str(context.media_path.resolve()),
                     "media_mtime_ns": context.media_path.stat().st_mtime_ns,
-                    "faces_mtime_ns": context.faces_path.stat().st_mtime_ns,
+                    "faces_meta": load_meta_snapshot(context.faces_meta_path),
                 },
                 file,
                 ensure_ascii=False,
@@ -1188,8 +1254,8 @@ class FaceGazeEstimator:
                     "det_thresh": float(det_thresh),
                     "media_path": str(context.media_path.resolve()),
                     "media_mtime_ns": context.media_path.stat().st_mtime_ns,
-                    "persons_mtime_ns": context.persons_path.stat().st_mtime_ns if context.persons_path.exists() else -1,
-                    "objects_mtime_ns": context.objects_path.stat().st_mtime_ns if context.objects_path.exists() else -1,
+                    "persons_meta": load_meta_snapshot(context.persons_meta_path),
+                    "objects_meta": load_meta_snapshot(context.objects_meta_path),
                 },
                 file,
                 ensure_ascii=False,
@@ -1224,6 +1290,41 @@ class FaceGazeEstimator:
                     frame_height=frame_height,
                 )
         return dense_gaze_by_frame
+
+    @staticmethod
+    def _raw_inout_from_gaze_maps(
+        dense_gaze_by_frame: dict[int, dict[int, GazePoint]],
+    ) -> dict[int, dict[str, float]]:
+        """Snapshot inout values before Kalman filtering so the cache can re-filter them."""
+        return {
+            frame_idx: {str(track_id): float(gaze.inout) for track_id, gaze in gaze_map.items()}
+            for frame_idx, gaze_map in dense_gaze_by_frame.items()
+        }
+
+    def _load_raw_inout_cache(self, context: MediaContext) -> dict[str, float] | None:
+        """Read unfiltered inout values from the heatmap cache, or None when unavailable."""
+        try:
+            with np.load(context.gaze_heatmaps_path) as heatmaps:
+                if RAW_INOUT_KEYS not in heatmaps or RAW_INOUT_VALUES not in heatmaps:
+                    return None
+                keys = heatmaps[RAW_INOUT_KEYS]
+                values = heatmaps[RAW_INOUT_VALUES]
+        except Exception:
+            return None
+        if len(keys) != len(values):
+            return None
+        return {str(key): float(value) for key, value in zip(keys, values)}
+
+    @staticmethod
+    def _restore_raw_inout(
+        dense_gaze_by_frame: dict[int, dict[int, GazePoint]],
+        raw_inout: dict[str, float],
+    ) -> None:
+        for frame_idx, gaze_map in dense_gaze_by_frame.items():
+            for track_id, gaze in list(gaze_map.items()):
+                inout = raw_inout.get(f"frame_{frame_idx}_track_{track_id}")
+                if inout is not None:
+                    gaze_map[track_id] = replace(gaze, inout=inout)
 
     def _rebuild_gaze_df_from_dense_heatmaps(
         self,
@@ -2066,3 +2167,44 @@ class FaceGazeEstimator:
         if progress_bar is not None:
             progress_bar.progress(0.0, text=message)
         print(message, flush=True)
+
+    def _apply_kalman_gaze_filter(
+        self,
+        dense_gaze_by_frame: dict[int, dict[int, GazePoint]],
+        window: int,
+    ) -> None:
+        """Apply Kalman-like filtering to gaze points and inout in-place to reduce temporal jitter."""
+        if window <= 0:
+            return
+        for track_id in set(sum(([tk for tk in frame.keys()] for frame in dense_gaze_by_frame.values()), [])):
+            frames_with_track = sorted([f for f in dense_gaze_by_frame if track_id in dense_gaze_by_frame[f]])
+            if not frames_with_track:
+                continue
+            x_vals = [dense_gaze_by_frame[f][track_id].x_gaze for f in frames_with_track]
+            y_vals = [dense_gaze_by_frame[f][track_id].y_gaze for f in frames_with_track]
+            inout_vals = [dense_gaze_by_frame[f][track_id].inout for f in frames_with_track]
+            x_smooth = self._kalman_1d(x_vals, window)
+            y_smooth = self._kalman_1d(y_vals, window)
+            inout_smooth = self._kalman_1d(inout_vals, window)
+            for i, f in enumerate(frames_with_track):
+                gp = dense_gaze_by_frame[f][track_id]
+                dense_gaze_by_frame[f][track_id] = GazePoint(
+                    track_id=gp.track_id,
+                    inout=max(0.0, min(1.0, inout_smooth[i])),
+                    x_gaze=int(x_smooth[i]),
+                    y_gaze=int(y_smooth[i]),
+                    heatmap=gp.heatmap,
+                    frame_width=gp.frame_width,
+                    frame_height=gp.frame_height,
+                )
+
+    @staticmethod
+    def _kalman_1d(values: list, window: int) -> list:
+        """Simple exponential smoothing (Kalman-like) for 1D signal."""
+        if not values or window <= 0:
+            return values
+        alpha = 2.0 / (window + 1)
+        smoothed = [float(values[0])]
+        for v in values[1:]:
+            smoothed.append(alpha * v + (1 - alpha) * smoothed[-1])
+        return smoothed

@@ -64,6 +64,7 @@ class PipelineConfig:
     object_smoothing_window: int
     face_smoothing_window: int
     gaze_smoothing_window: int
+    gaze_kalman_window: int
     selected_object_classes: list[str]
     reuse_cached_persons: bool
     reuse_cached_objects: bool

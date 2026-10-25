@@ -89,6 +89,7 @@ class ConfigManager:
         object_smoothing_window: int,
         face_smoothing_window: int,
         gaze_smoothing_window: int,
+        gaze_kalman_window: int,
         selected_object_classes: list[str] | None,
         reuse_cached_persons: bool,
         reuse_cached_objects: bool,
@@ -103,8 +104,11 @@ class ConfigManager:
             raise ValueError(f"person_detection_backend must be one of {sorted(PERSON_DETECTION_BACKENDS)}")
         if object_detection_backend not in OBJECT_DETECTION_BACKENDS:
             raise ValueError(f"object_detection_backend must be one of {sorted(OBJECT_DETECTION_BACKENDS)}")
-        if gaze_detection_backend not in GAZE_DETECTION_BACKENDS:
-            raise ValueError(f"gaze_detection_backend must be one of {sorted(GAZE_DETECTION_BACKENDS)}")
+        from .constants import discover_custom_gaze_models
+        custom_gaze_models = discover_custom_gaze_models(self.paths.custom_gaze_models_dir)
+        valid_gaze_backends = set(GAZE_DETECTION_BACKENDS) | set(custom_gaze_models.keys())
+        if gaze_detection_backend not in valid_gaze_backends:
+            raise ValueError(f"gaze_detection_backend must be one of {sorted(valid_gaze_backends)}")
         if head_pose_detection_backend not in HEAD_POSE_DETECTION_BACKENDS:
             raise ValueError(f"head_pose_detection_backend must be one of {sorted(HEAD_POSE_DETECTION_BACKENDS)}")
         if not 0.0 <= heatmap_alpha <= 1.0:
@@ -163,6 +167,7 @@ class ConfigManager:
             object_smoothing_window=int(object_smoothing_window),
             face_smoothing_window=int(face_smoothing_window),
             gaze_smoothing_window=int(gaze_smoothing_window),
+            gaze_kalman_window=int(gaze_kalman_window),
             selected_object_classes=normalized_selected_classes,
             reuse_cached_persons=bool(reuse_cached_persons),
             reuse_cached_objects=bool(reuse_cached_objects),
