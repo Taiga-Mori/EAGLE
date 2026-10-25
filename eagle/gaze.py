@@ -1832,29 +1832,26 @@ class FaceGazeEstimator:
     ) -> dict[int, GazePoint]:
         if not face_map:
             return {}
-        assert self.models.gazelle is not None
-        assert self.models.gazelle_transform is not None
+        assert self.models.gaze_model is not None
 
         height, width = frame.shape[:2]
         frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        img_tensor = self.models.gazelle_transform(frame_pil).unsqueeze(0).to(device)
         sorted_faces = sorted(face_map.values(), key=lambda face: face.track_id)
         bboxes = [
             (face.x1 / width, face.y1 / height, face.x2 / width, face.y2 / height)
             for face in sorted_faces
         ]
 
-        with torch.no_grad():
-            output = self.models.gazelle({"images": img_tensor, "bboxes": [bboxes]})
+        heatmaps, inouts = self.models.gaze_model.predict(frame_pil, bboxes, device)
 
         gaze_map: dict[int, GazePoint] = {}
         for index, face in enumerate(sorted_faces):
-            heatmap = output["heatmap"][0][index].detach().cpu().numpy()
+            heatmap = heatmaps[index].detach().cpu().numpy()
             heatmap = np.maximum(heatmap, 0)
             x_gaze, y_gaze = self.point_resolver.resolve(heatmap, width, height, gaze_point_method)
             gaze_map[face.track_id] = GazePoint(
                 track_id=face.track_id,
-                inout=float(output["inout"][0][index]),
+                inout=float(inouts[index]),
                 x_gaze=x_gaze,
                 y_gaze=y_gaze,
                 heatmap=heatmap.astype(np.float32),

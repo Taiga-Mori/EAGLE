@@ -1,3 +1,4 @@
+import bisect
 import cv2
 import numpy as np
 import pandas as pd
@@ -435,8 +436,11 @@ class GazeTemporalProcessor:
         sparse_frames = [frame_idx for frame_idx, _ in sparse_points]
 
         for frame_idx in track_frames:
-            prev_idx = max((i for i, sparse_frame in enumerate(sparse_frames) if sparse_frame <= frame_idx), default=None)
-            next_idx = min((i for i, sparse_frame in enumerate(sparse_frames) if sparse_frame >= frame_idx), default=None)
+            # sparse_frames is sorted, so bisect finds the neighbouring samples without a linear scan.
+            right = bisect.bisect_right(sparse_frames, frame_idx)
+            prev_idx = right - 1 if right > 0 else None
+            left = bisect.bisect_left(sparse_frames, frame_idx)
+            next_idx = left if left < len(sparse_frames) else None
 
             if prev_idx is None and next_idx is None:
                 continue
