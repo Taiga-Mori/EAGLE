@@ -702,7 +702,7 @@ def main() -> None:
                     st.caption(f"Tracking {len(selected_object_classes)} classes: {preview}{suffix}")
 
             with face_tab:
-                face_detection_options = ["retinaface", "scrfd", "mediapipe"]
+                face_detection_options = ["retinaface", "scrfd", "mediapipe", "yolo-pose"]
                 saved_face_detection_backend = st.session_state.get(
                     "face_detection_backend",
                     DEFAULT_FACE_DETECTION_BACKEND,
@@ -714,6 +714,11 @@ def main() -> None:
                     options=face_detection_options,
                     index=face_detection_options.index(saved_face_detection_backend),
                 )
+                if face_detection_backend == "yolo-pose":
+                    st.caption(
+                        "No face detector is run: head boxes are derived from the YOLO pose keypoints "
+                        "(nose, eyes, ears), so the face threshold is not used."
+                    )
                 face_det_thresh = float(
                     st.slider("Face threshold", 0.0, 1.0, face_det_thresh, 0.05)
                 )

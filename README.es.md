@@ -19,8 +19,8 @@ EAGLE es una herramienta de apoyo para anotación de mirada, basada en Streamlit
 
 - Seguimiento de personas con YOLO pose
 - Seguimiento de objetos no humanos con YOLO detection
-- Detección de rostros con RetinaFace por defecto, con MediaPipe también disponible
-- Estimación de mapas de calor de mirada con GAZELLE
+- Detección de rostros con RetinaFace por defecto, con SCRFD y MediaPipe también disponibles
+- Estimación de mapas de calor de mirada con GAZELLE, GAZELLE-DINOv3 o PaGE
 - Estimación de dirección fuera de pantalla con L2CS-Net por defecto, con MobileOne también disponible
 - Exportación CSV y exportación de imágenes/videos anotados
 
@@ -71,6 +71,12 @@ pip install -r requirements.txt
 
 Versión recomendada de Python: `3.10`
 
+En Google Colab (Python 3.12), instala en su lugar los requisitos con versiones fijadas para Colab y luego reinicia la sesión:
+
+```bash
+pip install -r requirements-colab.txt
+```
+
 ## Iniciar la aplicación
 Recomendado:
 
@@ -93,6 +99,9 @@ En el primer uso, EAGLE puede descargar y guardar en caché:
 - `yolo26x-pose.pt`
 - Pesos preentrenados de RetinaFace
 - Archivos torch.hub de GAZELLE
+- Pesos de SCRFD (`scrfd_10g_bnkps.onnx`) si se selecciona SCRFD
+- Pesos de GAZELLE-DINOv3 (`gazelle_dinov3_vitb16.pt`) y el código del modelo DINOv3 si se selecciona GAZELLE-DINOv3
+- Pesos y código del modelo PaGE desde Hugging Face (`Octopus1/page-vitb`) si se selecciona PaGE
 - `L2CSNet_gaze360.pkl`
 - `mobileone_s0.pt`
 
@@ -141,9 +150,9 @@ Comportamiento del directorio de salida:
 - `Object detection backend`
   - Selecciona el backend YOLO26 detection (`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l` o `yolo26x`). Los pesos descargados se conservan en `~/.EAGLE/` para reutilizarlos.
 - `Face detection backend`
-  - `retinaface` por defecto, o `mediapipe` si quieres usar MediaPipe.
+  - `retinaface` por defecto, `scrfd` para SCRFD, `mediapipe` si quieres usar MediaPipe, o `yolo-pose` para omitir la detección de rostros y obtener las cajas de cabeza a partir de los puntos clave de pose de YOLO (nariz, ojos, orejas). `yolo-pose` es la opción más rápida y funcionó igual de bien que los rostros detectados en nuestra evaluación.
 - `Gaze detection backend`
-  - `gazelle`.
+  - `gazelle` (modelo preentrenado oficial de GAZELLE, DINOv2 ViT-L), `gazelle_dinov3_vitb16` (GAZELLE-DINOv3, DINOv3 ViT-B), `page_vitb` (PaGE, DINOv3 ViT-B) o modelos GAZELLE ajustados colocados en `~/.EAGLE/custom/gaze/`.
 - `Head pose detection backend`
   - `l2cs` por defecto, o `mobileone` para el modelo de dirección anterior basado en MobileOne.
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
@@ -191,6 +200,23 @@ La UI expone estos ajustes de tracker desde [`config/botsort.yaml`](config/botso
 - `Enable ReID`
 - `proximity_thresh`
 - `appearance_thresh`
+
+## Evaluación comparativa
+Comparamos configuraciones en 12 sesiones del [Chiba Three-party Conversation Corpus](https://research.nii.ac.jp/src/en/Chiba3Party.html) (tres participantes sentados, una cámara gran angular, 720x480, 9,4 minutos por sesión) frente a anotaciones humanas de la mirada. La etiqueta de cada participante en cada fotograma es el otro participante al que mira (mirada a su rostro) o *none*. Los tiempos son medianas por sesión en una NVIDIA GeForce RTX 3090 e incluyen detección de rostros, estimación de la mirada y exportación; el seguimiento de personas (común a todas las configuraciones) tardó otros 7,0 minutos.
+
+| Modelo de mirada | Detector de rostros | FPS | κ de Cohen | F1 macro | Tiempo (min) |
+|---|---|---|---|---|---|
+| PaGE | SCRFD | 1 | 0.435 | 0.569 | 9.9 |
+| PaGE | SCRFD | 15 | 0.471 | 0.601 | 23.2 |
+| PaGE | MediaPipe | 15 | **0.483** | **0.610** | 25.2 |
+| PaGE | RetinaFace | 29.97 | 0.472 | 0.602 | 65.4 |
+| GAZELLE | SCRFD | 15 | 0.364 | 0.504 | 22.0 |
+| GAZELLE-DINOv3 | SCRFD | 15 | 0.353 | 0.500 | 17.3 |
+
+- El modelo de mirada es lo más importante: PaGE supera a GAZELLE y GAZELLE-DINOv3 en unos 0,1 de κ en las 12 sesiones.
+- El detector de rostros apenas afecta a la concordancia (≤0,012 de κ), pero sí mucho a la velocidad: SCRFD es el más rápido y RetinaFace el más lento. MediaPipe casi no detecta rostros en este vídeo gran angular (el 99,6 % de las cajas de cabeza se obtienen de los puntos clave de pose), por lo que sus filas muestran en la práctica que las cajas de cabeza derivadas de la pose funcionan tan bien como los rostros detectados.
+- 15 FPS da la misma concordancia que procesar todos los fotogramas; 1 FPS conserva más del 90 % a velocidad casi en tiempo real.
+- La concordancia es mucho mayor para la persona de frente a la cámara (κ 0,68) que para las vistas de lado (κ ≈ 0,38).
 
 ## Consejos de velocidad
 - Usa `cuda:*` en GPU NVIDIA, o `mps` en Apple Silicon cuando esté disponible.
@@ -329,6 +355,12 @@ results = eagle.run_all()
 ## Licencia
 Este proyecto está licenciado bajo `AGPL-3.0-or-later`. Consulta [LICENSE](LICENSE) para el texto de licencia del repositorio.
 
+Los modelos descargados en tiempo de ejecución se distribuyen bajo sus propias licencias:
+
+- Código y pesos de GAZELLE, GAZELLE-DINOv3 y PaGE: MIT License.
+- Los pesos de GAZELLE-DINOv3 y PaGE incluyen o derivan de DINOv3, por lo que también se aplica la [DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md) (por ejemplo, incluir la licencia al redistribuir, mencionar DINOv3 en publicaciones y no usarlo con fines militares).
+- Los pesos de SCRFD provienen de InsightFace, cuyos modelos preentrenados se ofrecen solo para investigación no comercial.
+
 ## Agradecimientos
 - Ultralytics YOLO
   - https://docs.ultralytics.com/
@@ -340,6 +372,14 @@ Este proyecto está licenciado bajo `AGPL-3.0-or-later`. Consulta [LICENSE](LICE
   - https://github.com/serengil/retinaface
 - GAZELLE
   - https://github.com/fkryan/gazelle
+- GAZELLE-DINOv3
+  - https://github.com/PINTO0309/gazelle-dinov3
+- PaGE
+  - https://github.com/OctopusWen/PaGE
+- DINOv3
+  - https://github.com/facebookresearch/dinov3
+- SCRFD (InsightFace)
+  - https://github.com/deepinsight/insightface
 - L2CS-Net
   - https://github.com/Ahmednull/L2CS-Net
 - MobileOne gaze-estimation weights

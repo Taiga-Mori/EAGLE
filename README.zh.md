@@ -19,8 +19,8 @@ EAGLE 是一个基于 Streamlit 的视线标注辅助工具，用于图像和视
 
 - 使用 YOLO pose 进行人物跟踪
 - 使用 YOLO detection 进行非人物对象跟踪
-- 默认使用 RetinaFace 进行人脸检测，也可以选择 MediaPipe
-- 使用 GAZELLE 进行视线热力图估计
+- 默认使用 RetinaFace 进行人脸检测，也可以选择 SCRFD 或 MediaPipe
+- 使用 GAZELLE、GAZELLE-DINOv3 或 PaGE 进行视线热力图估计
 - 默认使用 L2CS-Net 进行画面外方向估计，也可以选择 MobileOne gaze
 - CSV 导出以及带标注的图像/视频导出
 
@@ -71,6 +71,12 @@ pip install -r requirements.txt
 
 推荐 Python 版本：`3.10`
 
+在 Google Colab（Python 3.12）上，请改为安装为 Colab 固定版本的依赖，然后重启会话：
+
+```bash
+pip install -r requirements-colab.txt
+```
+
 ## 启动应用
 推荐方式：
 
@@ -93,6 +99,9 @@ venv/bin/streamlit run app.py
 - `yolo26x-pose.pt`
 - RetinaFace 预训练权重
 - GAZELLE torch.hub 文件
+- 选择 SCRFD 时：SCRFD 权重（`scrfd_10g_bnkps.onnx`）
+- 选择 GAZELLE-DINOv3 时：权重（`gazelle_dinov3_vitb16.pt`）和 DINOv3 模型代码
+- 选择 PaGE 时：来自 Hugging Face（`Octopus1/page-vitb`）的权重和模型代码
 - `L2CSNet_gaze360.pkl`
 - `mobileone_s0.pt`
 
@@ -141,9 +150,9 @@ venv/bin/streamlit run app.py
 - `Object detection backend`
   - 选择 YOLO26 detection backend（`yolo26n`、`yolo26s`、`yolo26m`、`yolo26l` 或 `yolo26x`）。已下载的权重会保留在 `~/.EAGLE/` 中以便复用。
 - `Face detection backend`
-  - 默认是 `retinaface`；如果想使用 MediaPipe，可以选择 `mediapipe`。
+  - 默认是 `retinaface`；使用 SCRFD 时选择 `scrfd`，使用 MediaPipe 时选择 `mediapipe`。选择 `yolo-pose` 时不进行人脸检测，而是由 YOLO 姿态关键点（鼻子、眼睛、耳朵）生成头部框；它速度最快，在基准测试中与检测到的人脸效果相当。
 - `Gaze detection backend`
-  - `gazelle`。
+  - `gazelle`（官方 GAZELLE 预训练模型，DINOv2 ViT-L）、`gazelle_dinov3_vitb16`（GAZELLE-DINOv3，DINOv3 ViT-B）、`page_vitb`（PaGE，DINOv3 ViT-B），或放在 `~/.EAGLE/custom/gaze/` 中的微调 GAZELLE 模型。
 - `Head pose detection backend`
   - 默认是 `l2cs`；如果要使用之前的 MobileOne 方向模型，可以选择 `mobileone`。
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
@@ -191,6 +200,23 @@ UI 暴露了 [`config/botsort.yaml`](config/botsort.yaml) 中的这些 tracker �
 - `Enable ReID`
 - `proximity_thresh`
 - `appearance_thresh`
+
+## 基准测试
+我们在[千叶大学三人会话语料库](https://research.nii.ac.jp/src/en/Chiba3Party.html)的12个会话（三名就座参与者、一台广角摄像机、720x480、每个会话9.4分钟）上，将各配置与人工视线标注进行了比较。每名参与者每一帧的标签为其注视的另一名参与者（注视该人的脸部）或 *none*。时间为单块 NVIDIA GeForce RTX 3090 上每个会话的中位数，包括人脸检测、视线估计和导出；人物跟踪（所有设置共用）另需7.0分钟。
+
+| 视线模型 | 人脸检测 | FPS | Cohen's κ | 宏平均F1 | 时间（分钟） |
+|---|---|---|---|---|---|
+| PaGE | SCRFD | 1 | 0.435 | 0.569 | 9.9 |
+| PaGE | SCRFD | 15 | 0.471 | 0.601 | 23.2 |
+| PaGE | MediaPipe | 15 | **0.483** | **0.610** | 25.2 |
+| PaGE | RetinaFace | 29.97 | 0.472 | 0.602 | 65.4 |
+| GAZELLE | SCRFD | 15 | 0.364 | 0.504 | 22.0 |
+| GAZELLE-DINOv3 | SCRFD | 15 | 0.353 | 0.500 | 17.3 |
+
+- 视线模型影响最大：PaGE 在全部12个会话中都比 GAZELLE 和 GAZELLE-DINOv3 高约0.1 κ。
+- 人脸检测器几乎不影响一致性（κ 差异≤0.012），但对速度影响很大：SCRFD 最快，RetinaFace 最慢。MediaPipe 在这种广角画面中几乎检测不到人脸（99.6% 的头部框改用姿态关键点生成），因此其结果实际上表明：由姿态关键点生成的头部框与检测到的人脸效果相当。
+- 15 FPS 与逐帧处理的一致性相同；1 FPS 以接近实时的速度保留了90%以上的一致性。
+- 正对摄像机的人（κ 0.68）的一致性远高于从侧面拍到的人（κ 约0.38）。
 
 ## 加速提示
 - 在 NVIDIA GPU 上使用 `cuda:*`；在 Apple Silicon 上如可用则使用 `mps`。
@@ -329,6 +355,12 @@ results = eagle.run_all()
 ## 许可证
 本项目采用 `AGPL-3.0-or-later` 许可证。仓库许可证正文见 [LICENSE](LICENSE)。
 
+运行时下载的模型适用各自的许可证：
+
+- GAZELLE、GAZELLE-DINOv3 和 PaGE 的代码与权重：MIT License。
+- GAZELLE-DINOv3 和 PaGE 的权重包含或源自 DINOv3，因此还适用 [DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md)（例如再分发时附带许可证、在论文中注明使用 DINOv3、禁止军事用途）。
+- SCRFD 权重来自 InsightFace，其预训练模型仅供非商业研究用途。
+
 ## 致谢
 - Ultralytics YOLO
   - https://docs.ultralytics.com/
@@ -340,6 +372,14 @@ results = eagle.run_all()
   - https://github.com/serengil/retinaface
 - GAZELLE
   - https://github.com/fkryan/gazelle
+- GAZELLE-DINOv3
+  - https://github.com/PINTO0309/gazelle-dinov3
+- PaGE
+  - https://github.com/OctopusWen/PaGE
+- DINOv3
+  - https://github.com/facebookresearch/dinov3
+- SCRFD (InsightFace)
+  - https://github.com/deepinsight/insightface
 - L2CS-Net
   - https://github.com/Ahmednull/L2CS-Net
 - MobileOne gaze-estimation weights

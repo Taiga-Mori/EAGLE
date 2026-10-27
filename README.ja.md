@@ -19,8 +19,8 @@ EAGLE は、画像・動画解析向けの Streamlit ベース視線アノテー
 
 - YOLO pose による人物追跡
 - YOLO detection による非人物オブジェクト追跡
-- デフォルトの RetinaFace、または選択可能な MediaPipe による顔検出
-- GAZELLE による視線ヒートマップ推定
+- デフォルトの RetinaFace、または選択可能な SCRFD・MediaPipe による顔検出
+- GAZELLE、GAZELLE-DINOv3、PaGE による視線ヒートマップ推定
 - デフォルトの L2CS-Net、または選択可能な MobileOne gaze による画面外方向推定
 - CSV 出力と、注釈付き画像・動画の出力
 
@@ -71,6 +71,12 @@ pip install -r requirements.txt
 
 推奨 Python バージョン: `3.10`
 
+Google Colab（Python 3.12）では、代わりに Colab 用にバージョンを固定した requirements をインストールし、セッションを再起動してください。
+
+```bash
+pip install -r requirements-colab.txt
+```
+
 ## アプリの起動
 推奨:
 
@@ -93,6 +99,9 @@ venv/bin/streamlit run app.py
 - `yolo26x-pose.pt`
 - RetinaFace の学習済み重み
 - GAZELLE の torch.hub ファイル
+- SCRFD 選択時: SCRFD の重み（`scrfd_10g_bnkps.onnx`）
+- GAZELLE-DINOv3 選択時: 重み（`gazelle_dinov3_vitb16.pt`）と DINOv3 のモデルコード
+- PaGE 選択時: Hugging Face（`Octopus1/page-vitb`）の重みとモデルコード
 - `L2CSNet_gaze360.pkl`
 - `mobileone_s0.pt`
 
@@ -141,9 +150,9 @@ venv/bin/streamlit run app.py
 - `Object detection backend`
   - YOLO26 detection backend（`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, `yolo26x`）を選択します。ダウンロード済みの重みは再利用のため `~/.EAGLE/` に保持されます。
 - `Face detection backend`
-  - デフォルトは `retinaface` です。MediaPipe を使いたい場合は `mediapipe` を選びます。
+  - デフォルトは `retinaface` です。SCRFD を使う場合は `scrfd`、MediaPipe を使いたい場合は `mediapipe` を選びます。`yolo-pose` を選ぶと顔検出を行わず、YOLO の姿勢キーポイント（鼻・目・耳）から頭部ボックスを作ります。最も高速で、ベンチマークでは検出した顔と同等に機能しました。
 - `Gaze detection backend`
-  - `gazelle` です。
+  - `gazelle`（公式の GAZELLE 学習済みモデル、DINOv2 ViT-L）、`gazelle_dinov3_vitb16`（GAZELLE-DINOv3、DINOv3 ViT-B）、`page_vitb`（PaGE、DINOv3 ViT-B）、または `~/.EAGLE/custom/gaze/` に置いたファインチューニング済み GAZELLE モデルです。
 - `Head pose detection backend`
   - デフォルトは `l2cs` です。以前の MobileOne ベースの方向推定を使う場合は `mobileone` を選びます。
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
@@ -191,6 +200,23 @@ UI では [`config/botsort.yaml`](config/botsort.yaml) の以下の tracker 設�
 - `Enable ReID`
 - `proximity_thresh`
 - `appearance_thresh`
+
+## ベンチマーク
+[千葉大学3人会話コーパス](https://research.nii.ac.jp/src/Chiba3Party.html) の12セッション（着席した3人、広角カメラ1台、720x480、1セッション9.4分）で、人手の視線アノテーションとの一致を比較しました。各参加者の各フレームのラベルは、見ている相手（その人の顔への視線）または *none* です。時間は NVIDIA GeForce RTX 3090 1枚でのセッションあたりの中央値で、顔検出・視線推定・書き出しの合計です。人物トラッキング（全設定で共通）には別途7.0分かかりました。
+
+| 視線モデル | 顔検出 | FPS | Cohen の κ | マクロF1 | 時間（分） |
+|---|---|---|---|---|---|
+| PaGE | SCRFD | 1 | 0.435 | 0.569 | 9.9 |
+| PaGE | SCRFD | 15 | 0.471 | 0.601 | 23.2 |
+| PaGE | MediaPipe | 15 | **0.483** | **0.610** | 25.2 |
+| PaGE | RetinaFace | 29.97 | 0.472 | 0.602 | 65.4 |
+| GAZELLE | SCRFD | 15 | 0.364 | 0.504 | 22.0 |
+| GAZELLE-DINOv3 | SCRFD | 15 | 0.353 | 0.500 | 17.3 |
+
+- 精度は視線モデルでほぼ決まります。PaGE は12セッションすべてで GAZELLE と GAZELLE-DINOv3 を κ で約0.1上回りました。
+- 顔検出は精度にほとんど影響しません（κ の差0.012以下）が、速度には大きく影響します。SCRFD が最速、RetinaFace が最も遅い結果でした。なお MediaPipe はこの広角映像の顔をほとんど検出できず（頭部ボックスの99.6%が骨格からの代用）、MediaPipe の行は実質的に「骨格から作った頭部ボックスでも検出した顔と同等に機能する」ことを示しています。
+- 15 FPS で全フレーム処理と同じ精度が得られます。1 FPS でもほぼ実時間で、その9割以上の精度を保ちます。
+- カメラに正対する人（κ 0.68）は、横から映る人（κ 約0.38）より大幅に精度が高くなります。
 
 ## 高速化のヒント
 - NVIDIA GPU が使える環境では `cuda:*`、Apple Silicon では利用可能なら `mps` を使ってください。
@@ -329,6 +355,12 @@ results = eagle.run_all()
 ## ライセンス
 このプロジェクトは `AGPL-3.0-or-later` でライセンスされています。リポジトリのライセンス本文は [LICENSE](LICENSE) を参照してください。
 
+実行時にダウンロードするモデルには、それぞれのライセンスが適用されます。
+
+- GAZELLE、GAZELLE-DINOv3、PaGE のコードと重み: MIT License。
+- GAZELLE-DINOv3 と PaGE の重みは DINOv3 を含む、またはそれに由来するため、[DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md) も適用されます（再配布時のライセンス同梱、論文での DINOv3 使用の明記、軍事利用の禁止など）。
+- SCRFD の重みは InsightFace のもので、学習済みモデルは非商用の研究目的に限って提供されています。
+
 ## 謝辞
 - Ultralytics YOLO
   - https://docs.ultralytics.com/
@@ -340,6 +372,14 @@ results = eagle.run_all()
   - https://github.com/serengil/retinaface
 - GAZELLE
   - https://github.com/fkryan/gazelle
+- GAZELLE-DINOv3
+  - https://github.com/PINTO0309/gazelle-dinov3
+- PaGE
+  - https://github.com/OctopusWen/PaGE
+- DINOv3
+  - https://github.com/facebookresearch/dinov3
+- SCRFD (InsightFace)
+  - https://github.com/deepinsight/insightface
 - L2CS-Net
   - https://github.com/Ahmednull/L2CS-Net
 - MobileOne gaze-estimation weights

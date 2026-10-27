@@ -20,8 +20,8 @@ EAGLE is a Streamlit-based gaze annotation support tool for image and video anal
 
 - Person tracking with YOLO pose
 - Non-person object tracking with YOLO detection
-- Face detection with RetinaFace by default, with MediaPipe also available
-- Gaze heatmap estimation with GAZELLE
+- Face detection with RetinaFace by default, with SCRFD and MediaPipe also available
+- Gaze heatmap estimation with GAZELLE, GAZELLE-DINOv3, or PaGE
 - Off-screen direction estimation with L2CS-Net by default, with MobileOne also available
 - CSV export plus annotated image/video export
 
@@ -72,6 +72,12 @@ pip install -r requirements.txt
 
 Recommended Python version: `3.10`
 
+On Google Colab (Python 3.12), install the Colab-specific pinned requirements instead, then restart the session:
+
+```bash
+pip install -r requirements-colab.txt
+```
+
 ## Launching The App
 Recommended:
 
@@ -94,6 +100,9 @@ On first use, EAGLE may download and cache:
 - `yolo26x-pose.pt`
 - RetinaFace pretrained weights
 - GAZELLE torch.hub files
+- SCRFD weights (`scrfd_10g_bnkps.onnx`) when SCRFD is selected
+- GAZELLE-DINOv3 weights (`gazelle_dinov3_vitb16.pt`) and the DINOv3 model code when GAZELLE-DINOv3 is selected
+- PaGE weights and model code from Hugging Face (`Octopus1/page-vitb`) when PaGE is selected
 - `L2CSNet_gaze360.pkl`
 - `mobileone_s0.pt`
 
@@ -142,9 +151,9 @@ Output directory behavior:
 - `Object detection backend`
   - Selects the YOLO26 detection backend (`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, or `yolo26x`). Downloaded weights are kept in `~/.EAGLE/` for reuse.
 - `Face detection backend`
-  - `retinaface` by default, or `mediapipe` when you want to use MediaPipe.
+  - `retinaface` by default, `scrfd` for SCRFD, `mediapipe` when you want to use MediaPipe, or `yolo-pose` to skip face detection and derive head boxes from the YOLO pose keypoints (nose, eyes, ears). `yolo-pose` is the fastest and worked as well as detected faces in our benchmark.
 - `Gaze detection backend`
-  - `gazelle` (official pretrained model), or custom fine-tuned models placed in `~/.EAGLE/custom/gaze/`.
+  - `gazelle` (official GAZELLE pretrained model, DINOv2 ViT-L), `gazelle_dinov3_vitb16` (GAZELLE-DINOv3, DINOv3 ViT-B), `page_vitb` (PaGE, DINOv3 ViT-B), or custom fine-tuned GAZELLE models placed in `~/.EAGLE/custom/gaze/`.
 - `Head pose detection backend`
   - `l2cs` by default, or `mobileone` for the previous MobileOne-based direction model.
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
@@ -193,6 +202,23 @@ The UI exposes these tracker settings from [`config/botsort.yaml`](config/botsor
 - `Enable ReID`
 - `proximity_thresh`
 - `appearance_thresh`
+
+## Benchmark
+We compared configurations on 12 sessions of the [Chiba Three-party Conversation Corpus](https://research.nii.ac.jp/src/en/Chiba3Party.html) (three seated participants, one wide-angle camera, 720x480, 9.4 minutes per session) against human gaze annotation. Each participant's frame label is the other participant they look at (gaze on that person's face) or *none*. Times are medians per session on one NVIDIA GeForce RTX 3090, for face detection plus gaze estimation and export; person tracking (shared by all settings) took another 7.0 minutes.
+
+| Gaze model | Face detector | FPS | Cohen's κ | Macro-F1 | Time (min) |
+|---|---|---|---|---|---|
+| PaGE | SCRFD | 1 | 0.435 | 0.569 | 9.9 |
+| PaGE | SCRFD | 15 | 0.471 | 0.601 | 23.2 |
+| PaGE | MediaPipe | 15 | **0.483** | **0.610** | 25.2 |
+| PaGE | RetinaFace | 29.97 | 0.472 | 0.602 | 65.4 |
+| GAZELLE | SCRFD | 15 | 0.364 | 0.504 | 22.0 |
+| GAZELLE-DINOv3 | SCRFD | 15 | 0.353 | 0.500 | 17.3 |
+
+- The gaze model matters most: PaGE beats GAZELLE and GAZELLE-DINOv3 by about 0.1 κ in all 12 sessions.
+- The face detector barely affects agreement (≤0.012 κ) but strongly affects speed: SCRFD is fastest, RetinaFace slowest. MediaPipe detects almost no faces in this wide-angle footage (99.6% of head boxes fall back to pose keypoints), so its rows effectively show that head boxes from pose keypoints work as well as detected faces.
+- 15 FPS gives the same agreement as every frame; 1 FPS keeps over 90% of it at about real-time speed.
+- Agreement is much higher for the person facing the camera (κ 0.68) than for people seen from the side (κ ≈ 0.38).
 
 ## Speed Tips
 - Use `cuda:*` on NVIDIA GPUs, or `mps` on Apple Silicon when available.
@@ -393,6 +419,12 @@ results = eagle.run_all()
 This project is licensed under `AGPL-3.0-or-later`.
 See [LICENSE](LICENSE) for the repository license text.
 
+Models downloaded at run time are distributed under their own licenses:
+
+- GAZELLE, GAZELLE-DINOv3, and PaGE code and weights: MIT License.
+- GAZELLE-DINOv3 and PaGE weights include or are derived from DINOv3, so the [DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md) also applies (e.g., include the license when redistributing, acknowledge DINOv3 in publications, no military use).
+- SCRFD weights come from InsightFace, whose pretrained models are provided for non-commercial research purposes only.
+
 ## Acknowledgements
 - Ultralytics YOLO
   - https://docs.ultralytics.com/
@@ -404,6 +436,14 @@ See [LICENSE](LICENSE) for the repository license text.
   - https://github.com/serengil/retinaface
 - GAZELLE
   - https://github.com/fkryan/gazelle
+- GAZELLE-DINOv3
+  - https://github.com/PINTO0309/gazelle-dinov3
+- PaGE
+  - https://github.com/OctopusWen/PaGE
+- DINOv3
+  - https://github.com/facebookresearch/dinov3
+- SCRFD (InsightFace)
+  - https://github.com/deepinsight/insightface
 - L2CS-Net
   - https://github.com/Ahmednull/L2CS-Net
 - MobileOne gaze-estimation weights

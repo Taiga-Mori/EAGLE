@@ -125,7 +125,7 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".wmv", ".webm"}
 VISUALIZATION_MODES = {"point", "heatmap", "both"}
 GAZE_POINT_METHODS = {"argmax", "center_of_mass", "peak_centroid", "peak_region_centroid", "soft_argmax"}
-FACE_DETECTION_BACKENDS = {"mediapipe", "retinaface", "scrfd"}
+FACE_DETECTION_BACKENDS = {"mediapipe", "retinaface", "scrfd", "yolo-pose"}
 DEFAULT_FACE_DETECTION_BACKEND = "retinaface"
 PERSON_DETECTION_BACKENDS = {
     "yolo26x-pose": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-pose.pt",

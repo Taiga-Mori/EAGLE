@@ -1571,6 +1571,9 @@ class FaceGazeEstimator:
         det_thresh: float,
         face_detection_backend: str,
     ) -> list[dict]:
+        if face_detection_backend == "yolo-pose":
+            # No face detector: every person's head box comes from the pose-keypoint fallback.
+            return []
         if face_detection_backend == "retinaface":
             assert self.models.retinaface is not None
             raw_faces = self.models.retinaface.predict_jsons(frame)
