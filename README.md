@@ -105,6 +105,7 @@ On first use, EAGLE may download and cache:
 - PaGE weights and model code from Hugging Face (`Octopus1/page-vitb`) when PaGE is selected
 - `L2CSNet_gaze360.pkl`
 - `mobileone_s0.pt`
+- GaT weights (`gat_stwsge_gaze360_gf.ckpt`) and the Omnivore Swin3D code when GaT is selected
 
 If first-run loading fails, check:
 
@@ -155,7 +156,7 @@ Output directory behavior:
 - `Gaze detection backend`
   - `gazelle` (official GAZELLE pretrained model, DINOv2 ViT-L), `gazelle_dinov3_vitb16` (GAZELLE-DINOv3, DINOv3 ViT-B), `page_vitb` (PaGE, DINOv3 ViT-B), or custom fine-tuned GAZELLE models placed in `~/.EAGLE/custom/gaze/`.
 - `Head pose detection backend`
-  - `l2cs` by default, or `mobileone` for the previous MobileOne-based direction model.
+  - Estimates the gaze direction of people looking outside the frame. `l2cs` by default (gaze from the face crop), `mobileone` for the previous MobileOne-based model, or `gat` for GaT (ST-WSGE, CVPR 2025), which estimates 3D gaze from the head crop and therefore also works when the face is seen from the side or from behind.
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
   - Separate thresholds for person pose tracking, non-person object tracking, face detection, and gaze in/out interpretation.
 - `Visualization mode`
@@ -424,6 +425,7 @@ Models downloaded at run time are distributed under their own licenses:
 - GAZELLE, GAZELLE-DINOv3, and PaGE code and weights: MIT License.
 - GAZELLE-DINOv3 and PaGE weights include or are derived from DINOv3, so the [DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md) also applies (e.g., include the license when redistributing, acknowledge DINOv3 in publications, no military use).
 - SCRFD weights come from InsightFace, whose pretrained models are provided for non-commercial research purposes only.
+- GaT weights and the Omnivore Swin3D code are licensed under CC BY-NC 4.0 (non-commercial use only).
 
 ## Acknowledgements
 - Ultralytics YOLO
@@ -444,6 +446,8 @@ Models downloaded at run time are distributed under their own licenses:
   - https://github.com/facebookresearch/dinov3
 - SCRFD (InsightFace)
   - https://github.com/deepinsight/insightface
+- GaT / ST-WSGE (3D gaze estimation)
+  - https://github.com/idiap/gaze3d
 - L2CS-Net
   - https://github.com/Ahmednull/L2CS-Net
 - MobileOne gaze-estimation weights

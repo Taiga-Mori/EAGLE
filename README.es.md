@@ -104,6 +104,7 @@ En el primer uso, EAGLE puede descargar y guardar en caché:
 - Pesos y código del modelo PaGE desde Hugging Face (`Octopus1/page-vitb`) si se selecciona PaGE
 - `L2CSNet_gaze360.pkl`
 - `mobileone_s0.pt`
+- Pesos de GaT (`gat_stwsge_gaze360_gf.ckpt`) y el código Swin3D de Omnivore si se selecciona GaT
 
 Si falla la carga inicial, comprueba:
 
@@ -154,7 +155,7 @@ Comportamiento del directorio de salida:
 - `Gaze detection backend`
   - `gazelle` (modelo preentrenado oficial de GAZELLE, DINOv2 ViT-L), `gazelle_dinov3_vitb16` (GAZELLE-DINOv3, DINOv3 ViT-B), `page_vitb` (PaGE, DINOv3 ViT-B) o modelos GAZELLE ajustados colocados en `~/.EAGLE/custom/gaze/`.
 - `Head pose detection backend`
-  - `l2cs` por defecto, o `mobileone` para el modelo de dirección anterior basado en MobileOne.
+  - Estima la dirección de la mirada de las personas que miran fuera del encuadre. `l2cs` por defecto (mirada a partir del recorte del rostro), `mobileone` para el modelo anterior basado en MobileOne, o `gat` para GaT (ST-WSGE, CVPR 2025), que estima la mirada 3D a partir del recorte de la cabeza y, por tanto, también funciona cuando el rostro se ve de lado o de espaldas.
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
   - Umbrales separados para seguimiento de personas con pose, seguimiento de objetos que no son personas, detección de rostros e interpretación gaze in/out.
 - `Visualization mode`
@@ -360,6 +361,7 @@ Los modelos descargados en tiempo de ejecución se distribuyen bajo sus propias 
 - Código y pesos de GAZELLE, GAZELLE-DINOv3 y PaGE: MIT License.
 - Los pesos de GAZELLE-DINOv3 y PaGE incluyen o derivan de DINOv3, por lo que también se aplica la [DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md) (por ejemplo, incluir la licencia al redistribuir, mencionar DINOv3 en publicaciones y no usarlo con fines militares).
 - Los pesos de SCRFD provienen de InsightFace, cuyos modelos preentrenados se ofrecen solo para investigación no comercial.
+- Los pesos de GaT y el código Swin3D de Omnivore están bajo CC BY-NC 4.0 (solo uso no comercial).
 
 ## Agradecimientos
 - Ultralytics YOLO
@@ -380,6 +382,8 @@ Los modelos descargados en tiempo de ejecución se distribuyen bajo sus propias 
   - https://github.com/facebookresearch/dinov3
 - SCRFD (InsightFace)
   - https://github.com/deepinsight/insightface
+- GaT / ST-WSGE (3D gaze estimation)
+  - https://github.com/idiap/gaze3d
 - L2CS-Net
   - https://github.com/Ahmednull/L2CS-Net
 - MobileOne gaze-estimation weights

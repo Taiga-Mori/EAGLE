@@ -27,6 +27,7 @@ except Exception:
 
 from .l2cs import l2cs_resnet50
 from .mobile_gaze import mobileone_s0_gaze
+from .gat_gaze import GAT_CHECKPOINT_URL, load_gat_model
 from .scrfd import SCRFDFaceDetector
 from .gaze_models import (
     GAZELLE_DINOV3_MODELS,
@@ -96,6 +97,7 @@ class ModelManager:
         self.loaded_gaze_detection_backend: str | None = None
         self.l2cs_gaze = None
         self.l2cs_gaze_transform = None
+        self.gat_gaze = None
         self.mobile_gaze = None
         self.mobile_gaze_transform = None
         self.loaded_device: str | None = None
@@ -248,6 +250,10 @@ class ModelManager:
                 "Please make sure this machine is connected to the internet and try again.\n"
                 f"Original error: {exc}"
             ) from exc
+
+    @property
+    def gat_gaze_path(self) -> Path:
+        return self.paths.app_dir / "gat_stwsge_gaze360_gf.ckpt"
 
     def gazelle_dinov3_weights_path(self, backend: str) -> Path:
         return self.paths.app_dir / f"{backend}.pt"
@@ -411,6 +417,8 @@ class ModelManager:
             self.ensure_l2cs_gaze_weights()
         if head_pose_detection_backend == "mobileone":
             self.ensure_mobile_gaze_weights()
+        if head_pose_detection_backend == "gat":
+            self._ensure_download(self.gat_gaze_path, GAT_CHECKPOINT_URL, "GaT (ST-WSGE) gaze weights")
         if self.yolo is None or self.loaded_object_detection_backend != object_detection_backend:
             self.yolo = YOLO(self.yolo_object_path(object_detection_backend))
             self.loaded_object_detection_backend = object_detection_backend
@@ -497,6 +505,16 @@ class ModelManager:
                     "Failed to load the L2CS-Net model on first run.\n"
                     f"Expected weight path: {self.paths.l2cs_gaze_path}\n"
                     "Please make sure this machine is connected to the internet and try again.\n"
+                    f"Original error: {exc}"
+                ) from exc
+        if head_pose_detection_backend == "gat" and (self.gat_gaze is None or self.loaded_device != device):
+            try:
+                self.gat_gaze = load_gat_model(self.gat_gaze_path, self.paths.torch_hub_dir).to(device)
+            except Exception as exc:
+                raise RuntimeError(
+                    "Failed to load the GaT (ST-WSGE) gaze model.\n"
+                    f"Weight path: {self.gat_gaze_path}\n"
+                    "GaT needs the einops package and downloads the Swin3D code from facebookresearch/omnivore.\n"
                     f"Original error: {exc}"
                 ) from exc
         self.gaze_model.to(device)

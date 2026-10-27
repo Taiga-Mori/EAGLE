@@ -12,6 +12,7 @@ from PIL import Image
 from .annotate import FrameAnnotator
 from .body_parts import build_person_part_shapes, resolve_person_part_label
 from .constants import FACE_COLUMNS, GAZE_COLUMNS
+from .gat_gaze import gaze_vector_to_yaw_pitch_deg, head_box_from_face_box, preprocess_head_crop
 from .metacache import load_meta_snapshot, meta_snapshot_matches
 from .models import ModelManager
 from .progress import update_progress
@@ -1872,12 +1873,14 @@ class FaceGazeEstimator:
         device: str,
         head_pose_detection_backend: str,
     ) -> dict[str, dict[str, float | str]]:
-        if head_pose_detection_backend not in {"l2cs", "mobileone"}:
+        if head_pose_detection_backend not in {"l2cs", "mobileone", "gat"}:
             raise ValueError(f"Unsupported head pose detection backend: {head_pose_detection_backend}")
         if not face_map or not gaze_map:
             return {}
         if head_pose_detection_backend == "l2cs":
             return self._detect_l2cs_offscreen_directions(frame, face_map, gaze_map, det_thresh, device)
+        if head_pose_detection_backend == "gat":
+            return self._detect_gat_offscreen_directions(frame, face_map, gaze_map, det_thresh, device)
         return self._detect_mobileone_offscreen_directions(frame, face_map, gaze_map, det_thresh, device)
 
     def _detect_mobileone_offscreen_directions(
@@ -1976,6 +1979,51 @@ class FaceGazeEstimator:
         for index, track_id in enumerate(track_ids):
             yaw_value = float(yaw_deg[index].item())
             pitch_value = float(pitch_deg[index].item())
+            directions[track_id] = {
+                "direction": self._direction_from_angles(yaw_value, pitch_value),
+                "yaw": yaw_value,
+                "pitch": pitch_value,
+            }
+        return directions
+
+    def _detect_gat_offscreen_directions(
+        self,
+        frame: np.ndarray,
+        face_map: dict[int, FaceDetection],
+        gaze_map: dict[int, GazePoint],
+        det_thresh: float,
+        device: str,
+    ) -> dict[str, dict[str, float | str]]:
+        if self.models.gat_gaze is None:
+            return {}
+
+        height, width = frame.shape[:2]
+        frame_rgb = None
+        crops: list[torch.Tensor] = []
+        track_ids: list[str] = []
+        for track_id, gaze in gaze_map.items():
+            if gaze is None or gaze.inout > det_thresh:
+                continue
+            face = face_map.get(track_id)
+            if face is None:
+                continue
+            if frame_rgb is None:
+                frame_rgb = torch.from_numpy(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).permute(2, 0, 1)
+            box = head_box_from_face_box(face.x1, face.y1, face.x2, face.y2, width, height)
+            crops.append(preprocess_head_crop(frame_rgb, box))
+            track_ids.append(str(track_id))
+
+        if not crops:
+            return {}
+
+        with torch.no_grad():
+            vectors = self.models.gat_gaze(torch.stack(crops).to(torch.device(device))).cpu().numpy()
+        yaw_deg, pitch_deg = gaze_vector_to_yaw_pitch_deg(vectors)
+
+        directions: dict[str, dict[str, float | str]] = {}
+        for index, track_id in enumerate(track_ids):
+            yaw_value = float(yaw_deg[index])
+            pitch_value = float(pitch_deg[index])
             directions[track_id] = {
                 "direction": self._direction_from_angles(yaw_value, pitch_value),
                 "yaw": yaw_value,

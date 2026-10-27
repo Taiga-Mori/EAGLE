@@ -104,6 +104,7 @@ venv/bin/streamlit run app.py
 - PaGE 選択時: Hugging Face（`Octopus1/page-vitb`）の重みとモデルコード
 - `L2CSNet_gaze360.pkl`
 - `mobileone_s0.pt`
+- GaT 選択時: 重み（`gat_stwsge_gaze360_gf.ckpt`）と Omnivore の Swin3D のコード
 
 初回ロードに失敗した場合は、次を確認してください。
 
@@ -154,7 +155,7 @@ venv/bin/streamlit run app.py
 - `Gaze detection backend`
   - `gazelle`（公式の GAZELLE 学習済みモデル、DINOv2 ViT-L）、`gazelle_dinov3_vitb16`（GAZELLE-DINOv3、DINOv3 ViT-B）、`page_vitb`（PaGE、DINOv3 ViT-B）、または `~/.EAGLE/custom/gaze/` に置いたファインチューニング済み GAZELLE モデルです。
 - `Head pose detection backend`
-  - デフォルトは `l2cs` です。以前の MobileOne ベースの方向推定を使う場合は `mobileone` を選びます。
+  - 画面外を見ている人の視線方向を推定します。デフォルトは `l2cs`（顔画像から視線を推定）です。以前の MobileOne ベースのモデルを使う場合は `mobileone`、GaT（ST-WSGE、CVPR 2025）を使う場合は `gat` を選びます。GaT は頭部画像から3次元の視線を推定するため、顔が横向きや後ろ向きでも推定できます。
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
   - 人物姿勢追跡、人物以外のオブジェクト追跡、顔検出、視線 in/out 解釈に個別に使うしきい値です。
 - `Visualization mode`
@@ -360,6 +361,7 @@ results = eagle.run_all()
 - GAZELLE、GAZELLE-DINOv3、PaGE のコードと重み: MIT License。
 - GAZELLE-DINOv3 と PaGE の重みは DINOv3 を含む、またはそれに由来するため、[DINOv3 License](https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md) も適用されます（再配布時のライセンス同梱、論文での DINOv3 使用の明記、軍事利用の禁止など）。
 - SCRFD の重みは InsightFace のもので、学習済みモデルは非商用の研究目的に限って提供されています。
+- GaT の重みと Omnivore の Swin3D のコードは CC BY-NC 4.0（非商用に限る）です。
 
 ## 謝辞
 - Ultralytics YOLO
@@ -380,6 +382,8 @@ results = eagle.run_all()
   - https://github.com/facebookresearch/dinov3
 - SCRFD (InsightFace)
   - https://github.com/deepinsight/insightface
+- GaT / ST-WSGE (3D gaze estimation)
+  - https://github.com/idiap/gaze3d
 - L2CS-Net
   - https://github.com/Ahmednull/L2CS-Net
 - MobileOne gaze-estimation weights
