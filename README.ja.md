@@ -176,12 +176,14 @@ venv/bin/streamlit run app.py
 ### Temporal Settings
 - `Person smoothing window`
   - 人物 bbox に対する平滑化窓です。
+- `Merge duplicate and switched person tracks`、`Duplicate track IoU`、`ID switch max gap (seconds)`
+  - 動画のみ・既定で有効。同じ人物を囲むトラック（共通フレームの80%以上で IoU 0.6 以上、または一方の bbox が他方に含まれ頭部が一致）を長い方に統合し、別のトラックの終了から3秒以内に同じ位置・同程度の大きさで始まるトラックをその続き（ID の切り替わり）として連結します。間は補間します。後処理前のトラックは `persons_raw.csv` に残り、これらの設定を変えた場合は後処理だけを再実行します。
 - `Object smoothing window`
   - 追跡オブジェクトの bbox に対する平滑化窓です。
 - `Face smoothing window`
   - 補間済みの顔 bbox に対する平滑化窓です。
-- `Gaze smoothing window`
-  - 視線推定と画面外方向角度に対する平滑化窓です。
+- `Gaze label smoothing (seconds, 0=disabled)`
+  - 動画のみ。`annotation.csv` の各フレームの注視対象を、この長さ（既定 0.3 秒）の中心窓内で最も多い注視対象に置き換え、短いちらつきを除去します。視線点やヒートマップ自体は平滑化しません。
 - `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
   - 動画のみ。各ステージを指定した target FPS で実行し、それぞれの中間生成物を書き出します。
 
@@ -228,7 +230,9 @@ UI では [`config/botsort.yaml`](config/botsort.yaml) の以下の tracker 設�
 現在の出力には次が含まれます。
 
 - `persons.csv`
-  - 平滑化済みの人物追跡結果
+  - 重複・ID 切り替わりを統合した後の平滑化済み人物追跡結果（後段で使用。統合内容は `.persons_meta.json` に記録）
+- `persons_raw.csv`
+  - その後処理を行う前の平滑化済み人物追跡結果
 - `.persons_meta.json`
   - person cache 再利用検証用のメタデータ
 - `objects.csv`
@@ -240,9 +244,9 @@ UI では [`config/botsort.yaml`](config/botsort.yaml) の以下の tracker 設�
 - `.faces_meta.json`
   - face cache 再利用検証用のメタデータ
 - `gaze.csv`
-  - 平滑化済みの視線点、in/out 確率、画面外方向フィールド
+  - 視線点、in/out 確率、画面外方向フィールド（補間のみで平滑化なし）
 - `gaze_heatmaps.npz`
-  - dense な視線ヒートマップのキャッシュ
+  - サンプリングしたフレームの視線ヒートマップのキャッシュ（float16。間のフレームはキャッシュ再利用時に補間し直します）
 - `.gaze_meta.json`
   - gaze cache 再利用検証用のメタデータ
 - `annotation.csv`

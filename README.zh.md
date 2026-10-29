@@ -176,12 +176,14 @@ venv/bin/streamlit run app.py
 ### Temporal Settings
 - `Person smoothing window`
   - 人物框的平滑窗口。
+- `Merge duplicate and switched person tracks`、`Duplicate track IoU`、`ID switch max gap (seconds)`
+  - 仅限视频，默认开启。将框住同一人物的轨迹（在共同帧中至少 80% 的帧 IoU 不低于 0.6，或一个框位于另一个框内且头部位置一致）合并到较长的轨迹中；若某条轨迹在另一条轨迹结束后 3 秒内、在相同位置以相近大小出现，则视为其延续（ID 切换）并连接。中间的空缺通过插值补全。后处理前的轨迹保存在 `persons_raw.csv` 中，修改这些设置时只会重新执行后处理。
 - `Object smoothing window`
   - 跟踪对象框的平滑窗口。
 - `Face smoothing window`
   - 插值后人脸框的平滑窗口。
-- `Gaze smoothing window`
-  - 视线估计和画面外方向角度的平滑窗口。
+- `Gaze label smoothing (seconds, 0=disabled)`
+  - 仅限视频。将 `annotation.csv` 中每一帧的注视目标替换为以该帧为中心、此长度（默认 0.3 秒）窗口内出现最多的注视目标，以去除短暂的抖动。视线点和热力图本身不做平滑。
 - `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
   - 仅视频。每个阶段按所选 target FPS 运行，并写出自己的中间输出。
 
@@ -228,7 +230,9 @@ UI 暴露了 [`config/botsort.yaml`](config/botsort.yaml) 中的这些 tracker �
 当前输出可能包括：
 
 - `persons.csv`
-  - 平滑后的人物跟踪结果
+  - 合并重复轨迹和 ID 切换后的平滑人物跟踪结果（供后续阶段使用；合并记录见 `.persons_meta.json`）
+- `persons_raw.csv`
+  - 上述后处理之前的平滑人物跟踪结果
 - `.persons_meta.json`
   - 用于验证 person cache 复用的元数据
 - `objects.csv`
@@ -240,9 +244,9 @@ UI 暴露了 [`config/botsort.yaml`](config/botsort.yaml) 中的这些 tracker �
 - `.faces_meta.json`
   - 用于验证 face cache 复用的元数据
 - `gaze.csv`
-  - 平滑后的视线点、in/out 概率和画面外方向字段
+  - 视线点、in/out 概率和画面外方向字段（仅插值，不做平滑）
 - `gaze_heatmaps.npz`
-  - 缓存的 dense 视线热力图
+  - 采样帧的视线热力图缓存（float16；中间帧在复用缓存时重新插值）
 - `.gaze_meta.json`
   - 用于验证 gaze cache 复用的元数据
 - `annotation.csv`

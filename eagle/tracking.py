@@ -9,7 +9,7 @@ import yaml
 from .constants import OBJECT_COLUMNS
 from .models import ModelManager
 from .progress import update_progress
-from .temporal import ObjectTrackSmoother
+from .temporal import ObjectTrackSmoother, PersonTrackPostprocessor
 from .types import AppPaths, MediaContext
 
 
@@ -20,6 +20,7 @@ class ObjectTracker:
         self.models = models
         self.paths = paths
         self.smoother = smoother
+        self.postprocessor = PersonTrackPostprocessor(smoother)
 
     def detect_persons(
         self,
@@ -29,6 +30,7 @@ class ObjectTracker:
         person_detection_backend: str,
         smoothing_window: int,
         max_switch_gap: int,
+        track_postprocess: dict[str, float] | None,
         progress_bar=None,
     ) -> pd.DataFrame:
         raw_rows = self._run_person_detection(context, device, det_thresh, progress_bar)
@@ -42,9 +44,7 @@ class ObjectTracker:
             max_switch_gap=max_switch_gap,
         )
         self._update_progress(progress_bar, 1, 1, "Interpolating and smoothing persons...")
-        self._update_progress(progress_bar, 0, 1, "Saving persons.csv...")
-        detections.to_csv(context.persons_path, index=False)
-        self._update_progress(progress_bar, 1, 1, "Saving persons.csv...")
+        detections.to_csv(context.persons_raw_path, index=False)
         self._write_track_meta(
             context.persons_meta_path,
             context,
@@ -59,7 +59,43 @@ class ObjectTracker:
                 "max_switch_gap": int(max_switch_gap),
             },
         )
-        return detections
+        return self.postprocess_persons(context, detections, track_postprocess, progress_bar)
+
+    def postprocess_persons(
+        self,
+        context: MediaContext,
+        raw_tracks: pd.DataFrame,
+        track_postprocess: dict[str, float] | None,
+        progress_bar=None,
+    ) -> pd.DataFrame:
+        """Write persons.csv from the unprocessed tracks (kept as persons_raw.csv) and record the settings."""
+        if not context.persons_raw_path.exists():
+            raw_tracks.to_csv(context.persons_raw_path, index=False)
+        tracks, merges = raw_tracks, []
+        if track_postprocess is not None and context.media_type == "video":
+            self._update_progress(progress_bar, 0, 1, "Merging duplicate and switched person tracks...")
+            tracks, merges = self.postprocessor.process(
+                raw_tracks,
+                duplicate_iou=float(track_postprocess["duplicate_iou"]),
+                stitch_max_gap=int(round(float(track_postprocess["stitch_max_gap_sec"]) * context.fps)),
+            )
+            self._update_progress(progress_bar, 1, 1, "Merging duplicate and switched person tracks...")
+            print(
+                f"Person track post-processing: {raw_tracks['track_id'].nunique()} -> {tracks['track_id'].nunique()} tracks "
+                f"({sum(m['reason'] == 'duplicate' for m in merges)} duplicates, "
+                f"{sum(m['reason'] == 'id_switch' for m in merges)} ID switches merged)",
+                flush=True,
+            )
+        self._update_progress(progress_bar, 0, 1, "Saving persons.csv...")
+        tracks.to_csv(context.persons_path, index=False)
+        self._update_progress(progress_bar, 1, 1, "Saving persons.csv...")
+        with context.persons_meta_path.open("r", encoding="utf-8") as file:
+            meta = json.load(file)
+        meta["track_postprocess"] = track_postprocess
+        meta["track_merges"] = merges
+        with context.persons_meta_path.open("w", encoding="utf-8") as file:
+            json.dump(meta, file, ensure_ascii=False, indent=2)
+        return tracks
 
     def detect_objects(
         self,

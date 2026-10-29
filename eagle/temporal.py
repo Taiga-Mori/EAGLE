@@ -306,8 +306,218 @@ class ObjectTrackSmoother:
         return centers
 
 
+
+class PersonTrackPostprocessor:
+    """Repair person tracks after tracking.
+
+    Duplicates: two tracks that box the same person in at least 80% of their common frames are merged into
+    the longer one. A frame counts when IoU >= duplicate_iou, or when one box lies inside the other (e.g. an
+    upper-body box inside a full-body box) and their head keypoints coincide. ID switches: a track that starts shortly after another ends
+    (within stitch_max_gap frames, or overlapping it by up to half of that) near where it ended and with a
+    similar box size continues that track. Both steps repeat until nothing changes, since stitched tracks
+    can turn out to duplicate others. Gaps inside merged tracks are filled by linear interpolation
+    (object_detected=False).
+    """
+
+    DUPLICATE_FRAME_RATIO = 0.8
+    STITCH_MAX_DISTANCE = 0.5  # box center distance relative to the box diagonal
+    STITCH_MAX_SIZE_RATIO = 2.0
+    MAX_ROUNDS = 10
+    CONTAINMENT = 0.9  # intersection over the smaller box
+    HEAD_DISTANCE = 0.15  # head keypoint distance relative to the smaller box diagonal
+    HEAD_KEYPOINTS = range(5)  # COCO nose, eyes, ears
+    HEAD_MIN_CONF = 0.3
+
+    def __init__(self, smoother: ObjectTrackSmoother) -> None:
+        self.smoother = smoother
+
+    def process(
+        self,
+        tracks: pd.DataFrame,
+        duplicate_iou: float,
+        stitch_max_gap: int,
+    ) -> tuple[pd.DataFrame, list[dict]]:
+        if tracks.empty:
+            return tracks, []
+        tracks = tracks.copy()
+        tracks["track_id"] = tracks["track_id"].astype(str)
+        merges: list[dict] = []
+        for _ in range(self.MAX_ROUNDS):
+            merged_before = len(merges)
+            tracks = self._merge_duplicates(tracks, duplicate_iou, merges)
+            tracks = self._stitch_fragments(tracks, stitch_max_gap, merges)
+            if len(merges) == merged_before:
+                break
+        tracks = self._fill_gaps(tracks)
+        return tracks.sort_values(["frame_idx", "track_id"]).reset_index(drop=True)[OBJECT_COLUMNS], merges
+
+    @staticmethod
+    def _box_iou(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        x1 = np.maximum(a[:, 0], b[:, 0])
+        y1 = np.maximum(a[:, 1], b[:, 1])
+        x2 = np.minimum(a[:, 2], b[:, 2])
+        y2 = np.minimum(a[:, 3], b[:, 3])
+        inter = np.clip(x2 - x1, 0, None) * np.clip(y2 - y1, 0, None)
+        area_a = (a[:, 2] - a[:, 0]) * (a[:, 3] - a[:, 1])
+        area_b = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
+        return inter / np.maximum(area_a + area_b - inter, 1e-6)
+
+    def _head_points(self, group: pd.DataFrame) -> pd.DataFrame:
+        points = []
+        for value in group["pose_keypoints"].tolist() if "pose_keypoints" in group.columns else [None] * len(group):
+            keypoints = self.smoother._parse_pose_keypoints(value)
+            valid = [
+                (keypoints[i][0], keypoints[i][1])
+                for i in self.HEAD_KEYPOINTS
+                if i < len(keypoints) and keypoints[i][0] is not None and (keypoints[i][2] or 0.0) >= self.HEAD_MIN_CONF
+            ]
+            points.append(np.mean(valid, axis=0) if valid else (np.nan, np.nan))
+        return pd.DataFrame(points, index=group["frame_idx"].astype(int).to_numpy(), columns=["hx", "hy"])
+
+    def _duplicate_frames(self, a: pd.DataFrame, b: pd.DataFrame, duplicate_iou: float) -> np.ndarray:
+        box_a, box_b = a[["x1", "y1", "x2", "y2"]].to_numpy(), b[["x1", "y1", "x2", "y2"]].to_numpy()
+        iou = self._box_iou(box_a, box_b)
+        inter_w = np.clip(np.minimum(box_a[:, 2], box_b[:, 2]) - np.maximum(box_a[:, 0], box_b[:, 0]), 0, None)
+        inter_h = np.clip(np.minimum(box_a[:, 3], box_b[:, 3]) - np.maximum(box_a[:, 1], box_b[:, 1]), 0, None)
+        area_a = (box_a[:, 2] - box_a[:, 0]) * (box_a[:, 3] - box_a[:, 1])
+        area_b = (box_b[:, 2] - box_b[:, 0]) * (box_b[:, 3] - box_b[:, 1])
+        smaller = np.where(area_a <= area_b, 0, 1)
+        containment = inter_w * inter_h / np.maximum(np.minimum(area_a, area_b), 1e-6)
+        small_boxes = np.where(smaller[:, None] == 0, box_a, box_b)
+        diagonal = np.hypot(small_boxes[:, 2] - small_boxes[:, 0], small_boxes[:, 3] - small_boxes[:, 1])
+        head_distance = np.hypot(a["hx"].to_numpy() - b["hx"].to_numpy(), a["hy"].to_numpy() - b["hy"].to_numpy())
+        same_head = head_distance <= self.HEAD_DISTANCE * diagonal  # False when a head is missing (NaN)
+        return (iou >= duplicate_iou) | ((containment >= self.CONTAINMENT) & same_head)
+
+    def _merge_duplicates(self, tracks: pd.DataFrame, duplicate_iou: float, merges: list[dict]) -> pd.DataFrame:
+        boxes = {
+            track_id: pd.concat(
+                [group.set_index(group["frame_idx"].astype(int))[["x1", "y1", "x2", "y2"]].astype(float), self._head_points(group)],
+                axis=1,
+            ).sort_index()
+            for track_id, group in tracks.groupby("track_id")
+        }
+        pairs = []
+        ids = sorted(boxes)
+        for i, a in enumerate(ids):
+            for b in ids[i + 1 :]:
+                if boxes[a].index[0] > boxes[b].index[-1] or boxes[b].index[0] > boxes[a].index[-1]:
+                    continue
+                common = boxes[a].index.intersection(boxes[b].index)
+                if len(common) == 0:
+                    continue
+                duplicate = self._duplicate_frames(boxes[a].loc[common], boxes[b].loc[common], duplicate_iou)
+                if float(np.mean(duplicate)) >= self.DUPLICATE_FRAME_RATIO:
+                    pairs.append((len(common), a, b))
+
+        root = {track_id: track_id for track_id in ids}
+
+        def find(track_id: str) -> str:
+            while root[track_id] != track_id:
+                track_id = root[track_id]
+            return track_id
+
+        for _, a, b in sorted(pairs, reverse=True):
+            a, b = find(a), find(b)
+            if a == b:
+                continue
+            sizes = tracks["track_id"].value_counts()
+            keep, drop = (a, b) if sizes.get(a, 0) >= sizes.get(b, 0) else (b, a)
+            keep_frames = set(tracks.loc[tracks["track_id"] == keep, "frame_idx"].astype(int))
+            drop_rows = tracks["track_id"] == drop
+            overlapping = drop_rows & tracks["frame_idx"].astype(int).isin(keep_frames)
+            tracks = tracks[~overlapping].copy()
+            tracks.loc[tracks["track_id"] == drop, "track_id"] = keep
+            root[drop] = keep
+            merges.append({"track_id": drop, "merged_into": keep, "reason": "duplicate"})
+        return tracks
+
+    def _stitch_fragments(self, tracks: pd.DataFrame, stitch_max_gap: int, merges: list[dict]) -> pd.DataFrame:
+        if stitch_max_gap <= 0:
+            return tracks
+        ends = {}
+        for track_id, group in tracks.groupby("track_id"):
+            group = group.sort_values("frame_idx")
+            first, last = group.iloc[0], group.iloc[-1]
+            ends[track_id] = (int(first["frame_idx"]), int(last["frame_idx"]), first, last)
+
+        candidates = []
+        for a, (_, a_end, _, a_last) in ends.items():
+            for b, (b_start, _, b_first, _) in ends.items():
+                gap = b_start - a_end
+                if a == b or gap > stitch_max_gap or gap < -(stitch_max_gap // 2) or b_start <= ends[a][0]:
+                    continue
+                width_a, height_a = a_last["x2"] - a_last["x1"], a_last["y2"] - a_last["y1"]
+                width_b, height_b = b_first["x2"] - b_first["x1"], b_first["y2"] - b_first["y1"]
+                diagonal = max(float(np.hypot(width_a, height_a)), 1.0)
+                distance = float(
+                    np.hypot(
+                        (a_last["x1"] + a_last["x2"] - b_first["x1"] - b_first["x2"]) / 2.0,
+                        (a_last["y1"] + a_last["y2"] - b_first["y1"] - b_first["y2"]) / 2.0,
+                    )
+                )
+                size_ratio = max(width_a * height_a, 1.0) / max(width_b * height_b, 1.0)
+                if distance > self.STITCH_MAX_DISTANCE * diagonal:
+                    continue
+                if not 1.0 / self.STITCH_MAX_SIZE_RATIO <= size_ratio <= self.STITCH_MAX_SIZE_RATIO:
+                    continue
+                candidates.append((distance / diagonal + abs(gap) / stitch_max_gap, a, b))
+
+        successor: dict[str, str] = {}
+        predecessor: dict[str, str] = {}
+        for _, a, b in sorted(candidates):
+            if a in successor or b in predecessor:
+                continue
+            successor[a] = b
+            predecessor[b] = a
+
+        # Where a successor overlaps its predecessor, the predecessor's boxes are kept.
+        for b, a in predecessor.items():
+            tracks = tracks[~((tracks["track_id"] == b) & (tracks["frame_idx"].astype(int) <= ends[a][1]))]
+        rename = {}
+        for b in predecessor:
+            head = b
+            while head in predecessor:
+                head = predecessor[head]
+            rename[b] = head
+        for b, head in sorted(rename.items(), key=lambda item: ends[item[0]][0]):
+            merges.append({"track_id": b, "merged_into": head, "reason": "id_switch"})
+        tracks = tracks.copy()
+        tracks["track_id"] = tracks["track_id"].map(lambda track_id: rename.get(track_id, track_id))
+        return tracks
+
+    def _fill_gaps(self, tracks: pd.DataFrame) -> pd.DataFrame:
+        bbox_cols = ["x1", "y1", "x2", "y2"]
+        groups = []
+        for track_id, group in tracks.groupby("track_id", sort=False):
+            group = group.sort_values("frame_idx").drop_duplicates(subset="frame_idx", keep="first")
+            frame_range = range(int(group["frame_idx"].min()), int(group["frame_idx"].max()) + 1)
+            if len(group) == len(frame_range):
+                groups.append(group)
+                continue
+            group = group.set_index("frame_idx").reindex(frame_range)
+            group["track_id"] = str(track_id)
+            geometry_df, keypoint_count = self.smoother._geometry_dataframe(group, bbox_cols)
+            geometry_df = geometry_df.interpolate(method="linear", limit_direction="both")
+            group[bbox_cols] = geometry_df[bbox_cols].round()
+            group["conf"] = geometry_df["conf"]
+            if "pose_keypoints" in group.columns:
+                group["pose_keypoints"] = self.smoother._serialize_pose_keypoints(geometry_df, keypoint_count)
+            group["object_detected"] = group["object_detected"].where(group["object_detected"].notna(), False).astype(bool)
+            for column in ["cls", "source"]:
+                group[column] = group[column].ffill().bfill()
+            group = group.reset_index().rename(columns={"index": "frame_idx"})
+            groups.append(group)
+        output = pd.concat(groups, ignore_index=True)
+        output["track_id"] = output["track_id"].astype(str)
+        for column in ["frame_idx", "x1", "y1", "x2", "y2"]:
+            output[column] = output[column].round().astype(int)
+        output["label"] = output["cls"].astype(str) + " " + output["track_id"]
+        return output
+
+
 class GazeTemporalProcessor:
-    """Interpolate sparse gaze results and smooth them over time."""
+    """Interpolate sparse face and gaze results over time and smooth face boxes."""
 
     def __init__(self, point_resolver: GazePointResolver | None = None) -> None:
         self.point_resolver = point_resolver or GazePointResolver()
@@ -395,12 +605,11 @@ class GazeTemporalProcessor:
                 )
         return dense_series
 
-    def interpolate_and_smooth(
+    def interpolate(
         self,
         frame_indices: list[int],
         face_maps_by_frame: dict[int, dict[int, object]],
         sparse_gaze_by_frame: dict[int, dict[int, GazePoint]],
-        smoothing_window: int,
         point_method: str,
     ) -> dict[int, dict[int, GazePoint]]:
         dense_gaze_by_frame: dict[int, dict[int, GazePoint]] = {frame_idx: {} for frame_idx in frame_indices}
@@ -418,8 +627,6 @@ class GazeTemporalProcessor:
             if not sparse_points:
                 continue
             dense_series = self._interpolate_track(track_id, track_frames, sparse_points, point_method)
-            if smoothing_window > 1:
-                dense_series = self._smooth_track(dense_series, smoothing_window, point_method)
             for frame_idx, gaze in dense_series.items():
                 dense_gaze_by_frame[frame_idx][track_id] = gaze
 
@@ -507,27 +714,3 @@ class GazeTemporalProcessor:
                 continue
             segments.append([frame_idx])
         return segments
-
-    def _smooth_track(self, dense_series: dict[int, GazePoint], window: int, point_method: str) -> dict[int, GazePoint]:
-        ordered_frames = sorted(dense_series)
-        half_window = window // 2
-        smoothed_series: dict[int, GazePoint] = {}
-
-        for position, frame_idx in enumerate(ordered_frames):
-            left = max(0, position - half_window)
-            right = min(len(ordered_frames), position + half_window + 1)
-            window_points = [dense_series[idx] for idx in ordered_frames[left:right]]
-            mean_heatmap = np.mean([point.heatmap for point in window_points], axis=0, dtype=np.float32)
-            frame_width = window_points[0].frame_width
-            frame_height = window_points[0].frame_height
-            x_gaze, y_gaze = self.point_resolver.resolve(mean_heatmap, frame_width, frame_height, point_method)
-            smoothed_series[frame_idx] = GazePoint(
-                track_id=dense_series[frame_idx].track_id,
-                inout=float(np.mean([point.inout for point in window_points])),
-                x_gaze=x_gaze,
-                y_gaze=y_gaze,
-                heatmap=mean_heatmap.astype(np.float32),
-                frame_width=frame_width,
-                frame_height=frame_height,
-            )
-        return smoothed_series

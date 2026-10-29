@@ -41,13 +41,14 @@ class EAGLE:
         self.model_manager = ModelManager(self.paths)
         self.annotator = FrameAnnotator()
         self.object_tracker = ObjectTracker(self.model_manager, self.paths, ObjectTrackSmoother())
+        self.exporter = AnnotationExporter(self.paths)
         self.face_gaze_estimator = FaceGazeEstimator(
             self.model_manager,
             self.annotator,
             GazeTemporalProcessor(),
             GazePointResolver(),
+            self.exporter,
         )
-        self.exporter = AnnotationExporter(self.paths)
         self.config: PipelineConfig | None = None
         self.context: MediaContext | None = None
 
@@ -77,17 +78,19 @@ class EAGLE:
         device: str | None = None,
         visualization_mode: str = "both",
         heatmap_alpha: float = 0.35,
-        gaze_point_method: str = "peak_region_centroid",
+        gaze_point_method: str = "soft_argmax",
         gaze_target_radius: int = 15,
         person_part_distance_scale: float = 0.10,
         person_part_min_conf: float = 0.0,
         face_fallback_min_size_scale: float = 1.0,
         person_smoothing_window: int = 5,
         person_max_switch_gap: int = 15,
+        person_track_postprocess: bool = True,
+        person_duplicate_iou: float = 0.6,
+        person_stitch_max_gap_sec: float = 3.0,
         object_smoothing_window: int = 5,
         face_smoothing_window: int = 5,
-        gaze_smoothing_window: int = 5,
-        gaze_kalman_window: int = 5,
+        gaze_label_smoothing_sec: float = 0.3,
         selected_object_classes: list[str] | None = None,
         reuse_cached_persons: bool = True,
         reuse_cached_objects: bool = True,
@@ -123,10 +126,12 @@ class EAGLE:
             face_fallback_min_size_scale=face_fallback_min_size_scale,
             person_smoothing_window=person_smoothing_window,
             person_max_switch_gap=person_max_switch_gap,
+            person_track_postprocess=person_track_postprocess,
+            person_duplicate_iou=person_duplicate_iou,
+            person_stitch_max_gap_sec=person_stitch_max_gap_sec,
             object_smoothing_window=object_smoothing_window,
             face_smoothing_window=face_smoothing_window,
-            gaze_smoothing_window=gaze_smoothing_window,
-            gaze_kalman_window=gaze_kalman_window,
+            gaze_label_smoothing_sec=gaze_label_smoothing_sec,
             selected_object_classes=selected_object_classes,
             reuse_cached_persons=reuse_cached_persons,
             reuse_cached_objects=reuse_cached_objects,
@@ -154,6 +159,7 @@ class EAGLE:
     def det_persons(self, progress_bar=None):
         context = self._require_context()
         config = self._require_config()
+        track_postprocess = self._person_track_postprocess(config)
         if config.reuse_cached_persons:
             cached_persons = self._load_cached_tracks(
                 context.persons_path,
@@ -165,8 +171,22 @@ class EAGLE:
                 backend=config.person_detection_backend,
             )
             if cached_persons is not None:
-                self._notify_skip(progress_bar, "Skipping person detection: reusing cached persons.csv.")
-                return cached_persons
+                with context.persons_meta_path.open("r", encoding="utf-8") as file:
+                    meta = json.load(file)
+                # Caches written before post-processing existed hold unprocessed tracks in persons.csv.
+                legacy_cache = "track_postprocess" not in meta
+                if meta.get("track_postprocess") == track_postprocess:
+                    self._notify_skip(progress_bar, "Skipping person detection: reusing cached persons.csv.")
+                    return cached_persons
+                raw_tracks = cached_persons if legacy_cache else None
+                if raw_tracks is None and context.persons_raw_path.exists():
+                    raw_tracks = pd.read_csv(context.persons_raw_path)
+                if raw_tracks is not None:
+                    self._notify_skip(
+                        progress_bar,
+                        "Skipping person detection: reusing cached person tracks and re-running track post-processing.",
+                    )
+                    return self.object_tracker.postprocess_persons(context, raw_tracks, track_postprocess, progress_bar)
         return self.object_tracker.detect_persons(
             context=context,
             device=config.device,
@@ -174,8 +194,18 @@ class EAGLE:
             person_detection_backend=config.person_detection_backend,
             smoothing_window=config.person_smoothing_window,
             max_switch_gap=config.person_max_switch_gap,
+            track_postprocess=track_postprocess,
             progress_bar=progress_bar,
         )
+
+    @staticmethod
+    def _person_track_postprocess(config: PipelineConfig) -> dict[str, float] | None:
+        if not config.person_track_postprocess:
+            return None
+        return {
+            "duplicate_iou": float(config.person_duplicate_iou),
+            "stitch_max_gap_sec": float(config.person_stitch_max_gap_sec),
+        }
 
     def det_objects(self, progress_bar=None):
         context = self._require_context()
@@ -234,8 +264,6 @@ class EAGLE:
             gaze_target_radius=config.gaze_target_radius,
             person_part_distance_scale=config.person_part_distance_scale,
             person_part_min_conf=config.person_part_min_conf,
-            gaze_smoothing_window=config.gaze_smoothing_window,
-            gaze_kalman_window=config.gaze_kalman_window,
             selected_object_classes=config.selected_object_classes,
             reuse_cached_gaze=config.reuse_cached_gaze,
             progress_bar=progress_bar,
@@ -261,6 +289,7 @@ class EAGLE:
             config.person_part_distance_scale,
             config.person_part_min_conf,
             config.selected_object_classes,
+            config.gaze_label_smoothing_sec,
         )
 
     def run_all(self, progress_bar=None) -> dict[str, Any]:

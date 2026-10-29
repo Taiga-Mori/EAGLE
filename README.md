@@ -177,12 +177,14 @@ Output directory behavior:
 ### Temporal Settings
 - `Person smoothing window`
   - Smoothing window for person boxes.
+- `Merge duplicate and switched person tracks`, `Duplicate track IoU`, `ID switch max gap (seconds)`
+  - Videos only, on by default. Tracks that box the same person (IoU of at least 0.6, or one box inside the other with the same head, in at least 80% of their common frames) are merged into the longer one, and a track that starts within 3 s of another ending, at the same place and with a similar size, continues that track (ID switch). Gaps are interpolated. The unprocessed tracks are kept in `persons_raw.csv`, and changing these settings re-runs only the post-processing.
 - `Object smoothing window`
   - Smoothing window for tracked object boxes.
 - `Face smoothing window`
   - Smoothing window for interpolated face boxes.
-- `Gaze smoothing window`
-  - Smoothing window for gaze estimates and off-screen direction angles.
+- `Gaze label smoothing (seconds, 0=disabled)`
+  - Videos only. Each frame's gaze target in `annotation.csv` is replaced by the most frequent target in a centered window of this length (default 0.3 s), which removes brief flickers. Gaze points and heatmaps themselves are not smoothed.
 - `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
   - For videos only. Each stage runs at the selected target FPS and then writes its own intermediate output.
 
@@ -230,7 +232,9 @@ We compared configurations on 12 sessions of the [Chiba Three-party Conversation
 Current outputs can include:
 
 - `persons.csv`
-  - Smoothed person tracking results
+  - Smoothed person tracking results after merging duplicate and ID-switched tracks (used by later stages; the merges are listed in `.persons_meta.json`)
+- `persons_raw.csv`
+  - Smoothed person tracking results before that post-processing
 - `.persons_meta.json`
   - Metadata used to validate person cache reuse
 - `objects.csv`
@@ -242,9 +246,9 @@ Current outputs can include:
 - `.faces_meta.json`
   - Metadata used to validate face cache reuse
 - `gaze.csv`
-  - Smoothed gaze points, in/out probabilities, and off-screen direction fields
+  - Gaze points, in/out probabilities, and off-screen direction fields (interpolated, not smoothed)
 - `gaze_heatmaps.npz`
-  - Cached dense gaze heatmaps
+  - Cached gaze heatmaps of the sampled frames (float16; the frames in between are re-interpolated when the cache is reused)
 - `.gaze_meta.json`
   - Metadata used to validate gaze cache reuse
 - `annotation.csv`

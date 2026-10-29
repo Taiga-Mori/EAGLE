@@ -61,10 +61,12 @@ class PipelineConfig:
     face_fallback_min_size_scale: float
     person_smoothing_window: int
     person_max_switch_gap: int
+    person_track_postprocess: bool
+    person_duplicate_iou: float
+    person_stitch_max_gap_sec: float
     object_smoothing_window: int
     face_smoothing_window: int
-    gaze_smoothing_window: int
-    gaze_kalman_window: int
+    gaze_label_smoothing_sec: float
     selected_object_classes: list[str]
     reuse_cached_persons: bool
     reuse_cached_objects: bool
@@ -81,6 +83,7 @@ class MediaContext:
     output_dir: Path
     temp_dir: Path
     persons_path: Path
+    persons_raw_path: Path
     persons_meta_path: Path
     objects_path: Path
     objects_meta_path: Path

@@ -487,9 +487,12 @@ def main() -> None:
 
             person_smoothing_window = int(st.session_state.get("person_smoothing_window", 5))
             person_max_switch_gap = int(st.session_state.get("person_max_switch_gap", 15))
+            person_track_postprocess = bool(st.session_state.get("person_track_postprocess", True))
+            person_duplicate_iou = float(st.session_state.get("person_duplicate_iou", 0.6))
+            person_stitch_max_gap_sec = float(st.session_state.get("person_stitch_max_gap_sec", 3.0))
             object_smoothing_window = int(st.session_state.get("object_smoothing_window", 5))
             face_smoothing_window = int(st.session_state.get("face_smoothing_window", 5))
-            gaze_smoothing_window = int(st.session_state.get("gaze_smoothing_window", 5))
+            gaze_label_smoothing_sec = float(st.session_state.get("gaze_label_smoothing_sec", 0.3))
             person_part_distance_scale = float(st.session_state.get("person_part_distance_scale", 0.10))
             person_part_min_conf = float(st.session_state.get("person_part_min_conf", 0.0))
             face_fallback_min_size_scale = float(st.session_state.get("face_fallback_min_size_scale", 1.0))
@@ -533,6 +536,38 @@ def main() -> None:
                         help="Short person-track jumps up to this many frames are treated as ID-switch outliers before interpolation. Set 0 to disable.",
                     )
                 )
+                person_track_postprocess = st.checkbox(
+                    "Merge duplicate and switched person tracks",
+                    value=bool(st.session_state.get("person_track_postprocess", True)),
+                    help="Videos only. Merges tracks that box the same person and continues tracks whose ID switched. "
+                    "Unprocessed tracks are kept in persons_raw.csv; later stages use persons.csv.",
+                )
+                col_duplicate_iou, col_stitch_gap = st.columns(2)
+                with col_duplicate_iou:
+                    person_duplicate_iou = float(
+                        st.number_input(
+                            "Duplicate track IoU",
+                            min_value=0.05,
+                            max_value=1.0,
+                            step=0.05,
+                            value=float(st.session_state.get("person_duplicate_iou", 0.6)),
+                            disabled=not person_track_postprocess,
+                            help="Two tracks overlapping at this IoU (or one box inside the other with the same head) "
+                            "in at least 80% of their common frames are merged.",
+                        )
+                    )
+                with col_stitch_gap:
+                    person_stitch_max_gap_sec = float(
+                        st.number_input(
+                            "ID switch max gap (seconds)",
+                            min_value=0.0,
+                            step=0.5,
+                            value=float(st.session_state.get("person_stitch_max_gap_sec", 3.0)),
+                            disabled=not person_track_postprocess,
+                            help="A track starting within this time after another ended, at the same place, continues it. "
+                            "0 disables ID switch merging.",
+                        )
+                    )
                 person_part_distance_scale = float(
                     st.number_input(
                         "Person part distance scale",
@@ -785,21 +820,14 @@ def main() -> None:
                         gaze_target_fps = fps_input("Gaze frame FPS", "gaze_target_fps")
                     with col_head_fps:
                         head_pose_target_fps = fps_input("Head pose frame FPS", "head_pose_target_fps")
-                gaze_smoothing_window = int(
+                gaze_label_smoothing_sec = float(
                     st.number_input(
-                        "Gaze smoothing window",
-                        min_value=1,
-                        step=1,
-                        value=int(st.session_state.get("gaze_smoothing_window", 5)),
-                    )
-                )
-                gaze_kalman_window = int(
-                    st.number_input(
-                        "Gaze Kalman filter window (0=disabled)",
-                        min_value=0,
-                        step=1,
-                        value=int(st.session_state.get("gaze_kalman_window", 5)),
-                        help="Reduces temporal jitter. 0 disables Kalman filtering.",
+                        "Gaze label smoothing (seconds, 0=disabled)",
+                        min_value=0.0,
+                        step=0.1,
+                        value=float(st.session_state.get("gaze_label_smoothing_sec", 0.3)),
+                        help="Videos only. Replaces each frame's gaze target in the ELAN output with the most frequent "
+                        "target in a centered window of this length, removing brief flickers.",
                     )
                 )
                 visualization_mode = st.selectbox(
@@ -867,10 +895,12 @@ def main() -> None:
         st.session_state.selected_object_classes = selected_object_classes
         st.session_state.person_smoothing_window = person_smoothing_window
         st.session_state.person_max_switch_gap = person_max_switch_gap
+        st.session_state.person_track_postprocess = person_track_postprocess
+        st.session_state.person_duplicate_iou = person_duplicate_iou
+        st.session_state.person_stitch_max_gap_sec = person_stitch_max_gap_sec
         st.session_state.object_smoothing_window = object_smoothing_window
         st.session_state.face_smoothing_window = face_smoothing_window
-        st.session_state.gaze_smoothing_window = gaze_smoothing_window
-        st.session_state.gaze_kalman_window = gaze_kalman_window
+        st.session_state.gaze_label_smoothing_sec = gaze_label_smoothing_sec
         st.session_state.person_target_fps = person_target_fps
         st.session_state.object_target_fps = object_target_fps
         st.session_state.face_target_fps = face_target_fps
@@ -941,10 +971,12 @@ def main() -> None:
                 face_fallback_min_size_scale=st.session_state.face_fallback_min_size_scale,
                 person_smoothing_window=st.session_state.person_smoothing_window,
                 person_max_switch_gap=st.session_state.person_max_switch_gap,
+                person_track_postprocess=st.session_state.person_track_postprocess,
+                person_duplicate_iou=st.session_state.person_duplicate_iou,
+                person_stitch_max_gap_sec=st.session_state.person_stitch_max_gap_sec,
                 object_smoothing_window=st.session_state.object_smoothing_window,
                 face_smoothing_window=st.session_state.face_smoothing_window,
-                gaze_smoothing_window=st.session_state.gaze_smoothing_window,
-                gaze_kalman_window=st.session_state.gaze_kalman_window,
+                gaze_label_smoothing_sec=st.session_state.gaze_label_smoothing_sec,
                 selected_object_classes=st.session_state.selected_object_classes,
                 reuse_cached_persons=st.session_state.reuse_cached_persons,
                 reuse_cached_objects=st.session_state.reuse_cached_objects,

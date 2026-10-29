@@ -16,6 +16,7 @@ warnings.filterwarnings("ignore", message="Error fetching version info.*", modul
 
 import torch
 import torch.nn.functional as F
+from filelock import FileLock
 from torchvision import transforms
 from retinaface.pre_trained_models import get_model
 from ultralytics import YOLO
@@ -429,7 +430,11 @@ class ModelManager:
             self._load_mediapipe_face_detector()
         if face_detection_backend == "retinaface" and (self.retinaface is None or self.loaded_device != device):
             try:
-                self.retinaface = get_model("resnet50_2020-07-20", max_size=2048, device=device)
+                # retinaface re-extracts its zipped weights on every load, so concurrent EAGLE processes can
+                # read a half-written file; loading one process at a time avoids that.
+                self.paths.torch_hub_dir.mkdir(parents=True, exist_ok=True)
+                with FileLock(str(self.paths.torch_hub_dir / "retinaface.lock")):
+                    self.retinaface = get_model("resnet50_2020-07-20", max_size=2048, device=device)
                 self.retinaface.eval()
             except Exception as exc:
                 raise RuntimeError(

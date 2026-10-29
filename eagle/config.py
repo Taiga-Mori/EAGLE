@@ -1,3 +1,4 @@
+import os
 import subprocess
 import shutil
 from pathlib import Path
@@ -86,10 +87,12 @@ class ConfigManager:
         face_fallback_min_size_scale: float,
         person_smoothing_window: int,
         person_max_switch_gap: int,
+        person_track_postprocess: bool,
+        person_duplicate_iou: float,
+        person_stitch_max_gap_sec: float,
         object_smoothing_window: int,
         face_smoothing_window: int,
-        gaze_smoothing_window: int,
-        gaze_kalman_window: int,
+        gaze_label_smoothing_sec: float,
         selected_object_classes: list[str] | None,
         reuse_cached_persons: bool,
         reuse_cached_objects: bool,
@@ -127,12 +130,16 @@ class ConfigManager:
             raise ValueError("person_smoothing_window must be at least 1")
         if person_max_switch_gap < 0:
             raise ValueError("person_max_switch_gap must be greater than or equal to 0")
+        if not 0.0 < person_duplicate_iou <= 1.0:
+            raise ValueError("person_duplicate_iou must be in (0, 1]")
+        if person_stitch_max_gap_sec < 0:
+            raise ValueError("person_stitch_max_gap_sec must be non-negative")
         if object_smoothing_window < 1:
             raise ValueError("object_smoothing_window must be at least 1")
         if face_smoothing_window < 1:
             raise ValueError("face_smoothing_window must be at least 1")
-        if gaze_smoothing_window < 1:
-            raise ValueError("gaze_smoothing_window must be at least 1")
+        if gaze_label_smoothing_sec < 0:
+            raise ValueError("gaze_label_smoothing_sec must be non-negative")
         normalized_selected_classes = self.normalize_selected_object_classes(selected_object_classes)
 
         return PipelineConfig(
@@ -164,10 +171,12 @@ class ConfigManager:
             face_fallback_min_size_scale=float(face_fallback_min_size_scale),
             person_smoothing_window=int(person_smoothing_window),
             person_max_switch_gap=int(person_max_switch_gap),
+            person_track_postprocess=bool(person_track_postprocess),
+            person_duplicate_iou=float(person_duplicate_iou),
+            person_stitch_max_gap_sec=float(person_stitch_max_gap_sec),
             object_smoothing_window=int(object_smoothing_window),
             face_smoothing_window=int(face_smoothing_window),
-            gaze_smoothing_window=int(gaze_smoothing_window),
-            gaze_kalman_window=int(gaze_kalman_window),
+            gaze_label_smoothing_sec=float(gaze_label_smoothing_sec),
             selected_object_classes=normalized_selected_classes,
             reuse_cached_persons=bool(reuse_cached_persons),
             reuse_cached_objects=bool(reuse_cached_objects),
@@ -202,15 +211,19 @@ class ConfigManager:
         raise ValueError(f"Unsupported input type for {input_path}")
 
     def prepare_tracker_config(self, updates: dict[str, Any]) -> None:
-        shutil.copy(self.paths.botsort_template_path, self.paths.botsort_runtime_path)
-        if not updates:
-            return
-
-        with self.paths.botsort_runtime_path.open("r", encoding="utf-8") as file:
-            config = yaml.safe_load(file) or {}
-        config.update(updates)
-        with self.paths.botsort_runtime_path.open("w", encoding="utf-8") as file:
-            yaml.safe_dump(config, file, sort_keys=False)
+        # Concurrent EAGLE processes share this file, so it is replaced atomically: a reader never sees it
+        # half-written (which would make cached person tracks look stale).
+        runtime_path = self.paths.botsort_runtime_path
+        temp_path = runtime_path.with_name(f".{runtime_path.name}.{os.getpid()}.tmp")
+        if updates:
+            with self.paths.botsort_template_path.open("r", encoding="utf-8") as file:
+                config = yaml.safe_load(file) or {}
+            config.update(updates)
+            with temp_path.open("w", encoding="utf-8") as file:
+                yaml.safe_dump(config, file, sort_keys=False)
+        else:
+            shutil.copy(self.paths.botsort_template_path, temp_path)
+        os.replace(temp_path, runtime_path)
 
     def build_media_context(self, config: PipelineConfig) -> MediaContext:
         config.output_dir.mkdir(parents=True, exist_ok=True)
@@ -295,6 +308,7 @@ class ConfigManager:
             output_dir=config.output_dir,
             temp_dir=temp_dir,
             persons_path=config.output_dir / "persons.csv",
+            persons_raw_path=config.output_dir / "persons_raw.csv",
             persons_meta_path=config.output_dir / ".persons_meta.json",
             objects_path=config.output_dir / "objects.csv",
             objects_meta_path=config.output_dir / ".objects_meta.json",

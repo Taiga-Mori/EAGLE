@@ -176,12 +176,14 @@ Comportamiento del directorio de salida:
 ### Temporal Settings
 - `Person smoothing window`
   - Ventana de suavizado para cajas de personas.
+- `Merge duplicate and switched person tracks`, `Duplicate track IoU`, `ID switch max gap (seconds)`
+  - Solo para vídeos, activado por defecto. Las pistas que enmarcan a la misma persona (IoU de al menos 0,6, o una caja dentro de la otra con la misma cabeza, en al menos el 80 % de sus fotogramas comunes) se fusionan en la más larga, y una pista que empieza a menos de 3 s del final de otra, en el mismo lugar y con un tamaño similar, se une como su continuación (cambio de ID). Los huecos se interpolan. Las pistas sin procesar se conservan en `persons_raw.csv`, y al cambiar estos ajustes solo se vuelve a ejecutar el posprocesado.
 - `Object smoothing window`
   - Ventana de suavizado para cajas de objetos seguidos.
 - `Face smoothing window`
   - Ventana de suavizado para cajas de rostro interpoladas.
-- `Gaze smoothing window`
-  - Ventana de suavizado para estimaciones de mirada y ángulos de dirección fuera de pantalla.
+- `Gaze label smoothing (seconds, 0=disabled)`
+  - Solo para vídeos. El objetivo de mirada de cada fotograma en `annotation.csv` se sustituye por el objetivo más frecuente en una ventana centrada de esta duración (0,3 s por defecto), lo que elimina parpadeos breves. Los puntos de mirada y los mapas de calor no se suavizan.
 - `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
   - Solo videos. Cada etapa se ejecuta con el target FPS seleccionado y escribe su propia salida intermedia.
 
@@ -228,7 +230,9 @@ Comparamos configuraciones en 12 sesiones del [Chiba Three-party Conversation Co
 Las salidas actuales pueden incluir:
 
 - `persons.csv`
-  - Resultados suavizados de seguimiento de personas
+  - Resultados suavizados de seguimiento de personas tras fusionar pistas duplicadas y con cambio de ID (los usan las etapas posteriores; las fusiones se registran en `.persons_meta.json`)
+- `persons_raw.csv`
+  - Resultados suavizados de seguimiento de personas antes de ese posprocesado
 - `.persons_meta.json`
   - Metadatos usados para validar la reutilización de person cache
 - `objects.csv`
@@ -240,9 +244,9 @@ Las salidas actuales pueden incluir:
 - `.faces_meta.json`
   - Metadatos usados para validar la reutilización de face cache
 - `gaze.csv`
-  - Puntos de mirada suavizados, probabilidad in/out y campos de dirección fuera de pantalla
+  - Puntos de mirada, probabilidad in/out y campos de dirección fuera de pantalla (interpolados, sin suavizar)
 - `gaze_heatmaps.npz`
-  - Mapas de calor dense de mirada en caché
+  - Mapas de calor de mirada de los fotogramas muestreados en caché (float16; los fotogramas intermedios se reinterpolan al reutilizar la caché)
 - `.gaze_meta.json`
   - Metadatos usados para validar la reutilización de gaze cache
 - `annotation.csv`

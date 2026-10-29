@@ -1,5 +1,6 @@
 certifi==2026.1.4
 einops==0.8.1
+filelock==3.23.0
 huggingface_hub==1.33.0
 lap==0.5.12
 mediapipe==0.10.33

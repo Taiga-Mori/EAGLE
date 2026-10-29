@@ -1,14 +1,65 @@
 import shutil
 import subprocess
 import sys
+import tempfile
+from collections import Counter
 from pathlib import Path
 
 import cv2
+import numpy as np
 import pandas as pd
 
 from .body_parts import resolve_person_part_label
 from .constants import ANNOTATION_COLUMNS
 from .types import AppPaths, MediaContext
+
+
+class PipedVideoWriter:
+    """Stream BGR frames into an ffmpeg process so no per-frame images touch the disk."""
+
+    def __init__(self, command: list[str], output_path: Path, purpose: str) -> None:
+        self.command = command
+        self.output_path = output_path
+        self.purpose = purpose
+        # ffmpeg's log goes to a file: an undrained stderr pipe would fill up and stall the encoder.
+        self._log = tempfile.TemporaryFile()
+        self._process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=self._log)
+
+    def write(self, frame: np.ndarray) -> None:
+        assert self._process.stdin is not None
+        try:
+            self._process.stdin.write(np.ascontiguousarray(frame).tobytes())
+        except (BrokenPipeError, OSError) as exc:
+            self._process.wait()
+            raise self._error() from exc
+
+    def close(self) -> None:
+        assert self._process.stdin is not None
+        try:
+            self._process.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
+        if self._process.wait() != 0:
+            raise self._error()
+        self._log.close()
+
+    def abort(self) -> None:
+        self._process.kill()
+        self._process.wait()
+        self._log.close()
+        self.output_path.unlink(missing_ok=True)
+
+    def _error(self) -> RuntimeError:
+        self._log.seek(0)
+        details = self._log.read().decode("utf-8", errors="replace").strip() or "ffmpeg did not print an error message."
+        self._log.close()
+        self.output_path.unlink(missing_ok=True)
+        return RuntimeError(
+            f"ffmpeg failed while {self.purpose}.\n"
+            f"Exit code: {self._process.returncode}\n"
+            f"Command: {' '.join(self.command)}\n"
+            f"Details: {details}"
+        )
 
 
 class AnnotationExporter:
@@ -17,6 +68,83 @@ class AnnotationExporter:
     def __init__(self, paths: AppPaths) -> None:
         self.paths = paths
         self._available_ffmpeg_encoders: set[str] | None = None
+        self._ffmpeg_executable: str | None = None
+        self._piped_encoders: dict[tuple[int, int], str] = {}
+
+    @staticmethod
+    def point_video_path(context: MediaContext) -> Path:
+        return context.temp_dir / "temp.mp4"
+
+    @staticmethod
+    def heatmap_video_path(context: MediaContext, track_id: str) -> Path:
+        return context.heatmap_dir / f"person_{track_id}.mp4"
+
+    def open_video_writer(
+        self,
+        output_path: Path,
+        width: int,
+        height: int,
+        fps: float,
+        purpose: str,
+        hardware: bool = True,
+    ) -> PipedVideoWriter:
+        encoder = self._piped_h264_encoder(width, height, fps) if hardware else "libx264"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        return PipedVideoWriter(
+            self._raw_input_command(width, height, fps) + self._h264_encoder_args(encoder) + [str(output_path)],
+            output_path,
+            f"{purpose} with {encoder}",
+        )
+
+    def _raw_input_command(self, width: int, height: int, fps: float) -> list[str]:
+        return [
+            self._resolve_ffmpeg_executable(),
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgr24",
+            "-s",
+            f"{width}x{height}",
+            "-framerate",
+            str(fps),
+            "-i",
+            "pipe:0",
+        ]
+
+    def _resolve_ffmpeg_executable(self) -> str:
+        if self._ffmpeg_executable is None:
+            self._ffmpeg_executable = str(self.paths.ffmpeg_path)
+            try:
+                subprocess.run([self._ffmpeg_executable, "-version"], check=True, capture_output=True)
+            except Exception:
+                fallback_ffmpeg = shutil.which("ffmpeg")
+                if fallback_ffmpeg is not None:
+                    self._ffmpeg_executable = fallback_ffmpeg
+        return self._ffmpeg_executable
+
+    def _piped_h264_encoder(self, width: int, height: int, fps: float) -> str:
+        # A streamed encode cannot be redone from saved frames, so try the hardware encoder on two
+        # blank frames first and use libx264 if it does not work for this frame size.
+        if (width, height) not in self._piped_encoders:
+            encoder = self._preferred_h264_encoder() or "libx264"
+            if encoder != "libx264":
+                probe = self._raw_input_command(width, height, fps) + self._h264_encoder_args(encoder) + ["-f", "null", "-"]
+                try:
+                    subprocess.run(
+                        probe,
+                        input=bytes(width * height * 3 * 2),
+                        check=True,
+                        capture_output=True,
+                        timeout=60,
+                    )
+                except Exception as exc:
+                    print(f"Hardware video encoder {encoder} is unavailable; using libx264.\n{exc}", flush=True)
+                    encoder = "libx264"
+            self._piped_encoders[(width, height)] = encoder
+        return self._piped_encoders[(width, height)]
 
     def make_video(self, context: MediaContext, visualization_mode: str) -> Path | list[Path]:
         if context.media_type != "video":
@@ -31,26 +159,14 @@ class AnnotationExporter:
         return self._make_point_video(context)
 
     def _make_point_video(self, context: MediaContext) -> Path:
-        # Encode and mux inside temp_dir, then move the finished file. Long ffmpeg writes straight
-        # onto slow/network-backed output folders (e.g. WSL /mnt/c) can fail mid-file.
-        silent_video = context.temp_dir / "temp.mp4"
+        # det_gaze() streams the annotated frames into temp_dir; here the original audio is muxed in
+        # and the finished file moved. Long ffmpeg writes straight onto slow/network-backed output
+        # folders (e.g. WSL /mnt/c) can fail mid-file.
+        silent_video = self.point_video_path(context)
         merged_video = context.temp_dir / "all_points.mp4"
         output_video = context.output_dir / "all_points.mp4"
-        frame_name_width = len(str(context.total_frames - 1))
-        self._run_h264_encode(
-            [
-                str(self.paths.ffmpeg_path),
-                "-y",
-                "-framerate",
-                str(context.fps),
-                "-start_number",
-                "0",
-                "-i",
-                str(context.temp_dir / f"%0{frame_name_width}d.jpg"),
-            ],
-            silent_video,
-            "creating the annotated point video",
-        )
+        if not silent_video.exists():
+            raise RuntimeError("Run det_faces() and det_gaze() before make_video().")
 
         merge_command = [
             str(self.paths.ffmpeg_path),
@@ -98,20 +214,10 @@ class AnnotationExporter:
 
     def make_heatmap_videos(self, context: MediaContext) -> list[Path]:
         outputs: list[Path] = []
-        for person_dir in sorted(path for path in context.heatmap_dir.iterdir() if path.is_dir()):
-            source_paths = sorted(person_dir.glob("*.jpg"))
-            if not source_paths:
-                continue
-            silent_video = person_dir / "temp.mp4"
-            output_video = context.output_dir / f"{person_dir.name}_heatmap.mp4"
-            self._make_image_list_video(
-                source_paths,
-                context.fps,
-                silent_video,
-                f"creating the heatmap video for {person_dir.name}",
-            )
-            silent_video.replace(output_video)
-            shutil.rmtree(person_dir, ignore_errors=True)
+        for heatmap_video in sorted(context.heatmap_dir.glob("person_*.mp4")):
+            output_video = context.output_dir / f"{heatmap_video.stem}_heatmap.mp4"
+            output_video.unlink(missing_ok=True)
+            shutil.move(str(heatmap_video), str(output_video))
             outputs.append(output_video)
         shutil.rmtree(context.heatmap_dir, ignore_errors=True)
         return outputs
@@ -136,6 +242,7 @@ class AnnotationExporter:
         person_part_distance_scale: float,
         person_part_min_conf: float,
         selected_object_classes: list[str],
+        label_smoothing_sec: float = 0.0,
     ) -> pd.DataFrame:
         context.annotation_path.parent.mkdir(parents=True, exist_ok=True)
         gaze_df = pd.read_csv(context.gaze_path)
@@ -215,9 +322,12 @@ class AnnotationExporter:
             self._write_annotation_csv(annotation_df, context)
             return annotation_df
 
+        label_window = int(round(label_smoothing_sec * context.fps)) | 1
         segments = []
         for track_id, group in target_df.groupby("track_id"):
             group = group.sort_values("frame_idx")
+            if label_window > 1:
+                group = self._smooth_track_labels(group, label_window)
             start_frame = None
             previous_frame = None
             previous_target = None
@@ -254,6 +364,36 @@ class AnnotationExporter:
         annotation_df = pd.DataFrame(segments, columns=ANNOTATION_COLUMNS)
         self._write_annotation_csv(annotation_df, context)
         return annotation_df
+
+    @classmethod
+    def _smooth_track_labels(cls, group: pd.DataFrame, window: int) -> pd.DataFrame:
+        """Mode-filter one track's frame-wise targets within each run of consecutive frames."""
+        frames = group["frame_idx"].astype(int).to_numpy()
+        targets = group["target"].astype(str).tolist()
+        smoothed: list[str] = []
+        run_start = 0
+        for index in range(1, len(frames) + 1):
+            if index == len(frames) or frames[index] != frames[index - 1] + 1:
+                smoothed.extend(cls._mode_filter(targets[run_start:index], window))
+                run_start = index
+        group = group.copy()
+        group["target"] = smoothed
+        return group
+
+    @staticmethod
+    def _mode_filter(labels: list[str], window: int) -> list[str]:
+        """Most frequent label in a centered window; ties keep the current label."""
+        half = window // 2
+        counts = Counter(labels[:half])
+        smoothed = []
+        for index, label in enumerate(labels):
+            if index + half < len(labels):
+                counts[labels[index + half]] += 1
+            if index - half - 1 >= 0:
+                counts[labels[index - half - 1]] -= 1
+            best = max(counts.values())
+            smoothed.append(label if counts[label] == best else max(counts, key=counts.__getitem__))
+        return smoothed
 
     def _write_annotation_csv(self, annotation_df: pd.DataFrame, context: MediaContext) -> None:
         annotation_df.to_csv(context.annotation_path, index=False)
@@ -408,28 +548,6 @@ class AnnotationExporter:
             return None
         return [fallback_ffmpeg, *command[1:]]
 
-    def _run_h264_encode(self, command_prefix: list[str], output_path: Path, purpose: str) -> None:
-        preferred_encoder = self._preferred_h264_encoder()
-        if preferred_encoder is not None:
-            try:
-                self._run_ffmpeg(
-                    command_prefix + self._h264_encoder_args(preferred_encoder) + [str(output_path)],
-                    f"{purpose} with {preferred_encoder}",
-                )
-                return
-            except RuntimeError as exc:
-                print(
-                    f"Hardware video encoder {preferred_encoder} failed while {purpose}; "
-                    "falling back to libx264.\n"
-                    f"{exc}",
-                    flush=True,
-                )
-
-        self._run_ffmpeg(
-            command_prefix + self._h264_encoder_args("libx264") + [str(output_path)],
-            f"{purpose} with libx264",
-        )
-
     def _preferred_h264_encoder(self) -> str | None:
         if str(sys.platform).startswith("darwin") and self._ffmpeg_encoder_available("h264_videotoolbox"):
             return "h264_videotoolbox"
@@ -473,33 +591,3 @@ class AnnotationExporter:
             if len(parts) >= 2 and parts[0].startswith("V"):
                 encoders.add(parts[1])
         return encoders
-
-    def _make_image_list_video(self, source_paths: list[Path], fps: float, output_path: Path, purpose: str) -> None:
-        list_path = output_path.with_suffix(".frames.txt")
-        frame_duration = 1.0 / float(fps)
-        lines: list[str] = []
-        for source_path in source_paths:
-            escaped_path = str(source_path).replace("'", "'\\''")
-            lines.append(f"file '{escaped_path}'")
-            lines.append(f"duration {frame_duration:.10f}")
-        if source_paths:
-            escaped_path = str(source_paths[-1]).replace("'", "'\\''")
-            lines.append(f"file '{escaped_path}'")
-        list_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        try:
-            self._run_h264_encode(
-                [
-                    str(self.paths.ffmpeg_path),
-                    "-y",
-                    "-f",
-                    "concat",
-                    "-safe",
-                    "0",
-                    "-i",
-                    str(list_path),
-                ],
-                output_path,
-                purpose,
-            )
-        finally:
-            list_path.unlink(missing_ok=True)
