@@ -10,7 +10,7 @@ import torch
 from PIL import Image
 
 from .annotate import FrameAnnotator
-from .body_parts import build_person_part_shapes, resolve_person_part_label
+from .body_parts import build_person_part_shapes
 from .constants import (
     FACE_COLUMNS,
     FACE_CROP_HEAD_SCALE,
@@ -24,6 +24,7 @@ from .gat_gaze import gaze_vector_to_yaw_pitch_deg, head_box_from_face_box, prep
 from .metacache import load_meta_snapshot, meta_snapshot_matches
 from .models import ModelManager
 from .progress import update_progress
+from .targets import resolve_gaze_target
 from .temporal import GazePointResolver, GazeTemporalProcessor
 from .types import FaceDetection, GazePoint, GazeRecord, MediaContext
 
@@ -333,7 +334,7 @@ class FaceGazeEstimator:
                             )
                         )
                     )
-                    target_label = self._resolve_target_label(
+                    target_label = self._target_label(
                         track_id,
                         gaze,
                         frame_objects,
@@ -867,7 +868,7 @@ class FaceGazeEstimator:
                                 offscreen_angles,
                             )
                         if detection["cls"] == "person":
-                            target_label = self._resolve_target_label(
+                            target_label = self._target_label(
                                 track_id,
                                 gaze,
                                 frame_objects,
@@ -1112,7 +1113,7 @@ class FaceGazeEstimator:
                         offscreen_angle_map.get(track_id),
                     )
                 if detection["cls"] == "person":
-                    target_label = self._resolve_target_label(
+                    target_label = self._target_label(
                         track_id,
                         gaze,
                         frame_objects,
@@ -2178,7 +2179,7 @@ class FaceGazeEstimator:
     def _update_progress(self, progress_bar, step: int, total: int, label: str) -> None:
         update_progress(progress_bar, step, total, label)
 
-    def _resolve_target_label(
+    def _target_label(
         self,
         track_id: str,
         gaze: GazePoint | None,
@@ -2191,73 +2192,31 @@ class FaceGazeEstimator:
         selected_object_classes: list[str],
         offscreen_direction: str | None = None,
     ) -> str:
-        if gaze is None:
-            return "out of frame"
-        if gaze.inout <= det_thresh:
-            return offscreen_direction or "out of frame"
-
-        x_gaze = gaze.x_gaze
-        y_gaze = gaze.y_gaze
-
-        candidates: list[tuple[int, str]] = []
-
-        for other_track_id, face in face_map.items():
-            if other_track_id == track_id:
-                continue
-            if self._point_hits_box(x_gaze, y_gaze, face.x1, face.y1, face.x2, face.y2, gaze_target_radius):
-                face_area = (face.x2 - face.x1) * (face.y2 - face.y1)
-                candidates.append((face_area, f"person {other_track_id}'s face"))
-
-        for detection in frame_objects:
-            x1 = int(detection["x1"])
-            y1 = int(detection["y1"])
-            x2 = int(detection["x2"])
-            y2 = int(detection["y2"])
-            if self._point_hits_box(x_gaze, y_gaze, x1, y1, x2, y2, gaze_target_radius):
-                area = (x2 - x1) * (y2 - y1)
-                if str(detection["cls"]) == "person":
-                    part_label = resolve_person_part_label(
-                        detection,
-                        x_gaze,
-                        y_gaze,
-                        gaze_target_radius,
-                        person_part_distance_scale,
-                        person_part_min_conf,
-                    )
-                    if part_label is not None and part_label != "other":
-                        candidates.append((area, f"person {str(detection['track_id'])}'s {part_label}"))
-                elif str(detection["cls"]) in set(selected_object_classes):
-                    candidates.append((area, str(detection.get("label", detection["cls"]))))
-
-        if not candidates:
-            return "other"
-        _, target = min(candidates, key=lambda item: item[0])
-        return target
+        """The label drawn on the video, decided exactly as the ELAN export decides it."""
+        frame_faces = [
+            {"track_id": face_track_id, "face_x1": face.x1, "face_y1": face.y1, "face_x2": face.x2, "face_y2": face.y2}
+            for face_track_id, face in face_map.items()
+        ]
+        return resolve_gaze_target(
+            track_id,
+            gaze.inout if gaze is not None else None,
+            gaze.x_gaze if gaze is not None else None,
+            gaze.y_gaze if gaze is not None else None,
+            offscreen_direction,
+            frame_faces,
+            frame_objects,
+            det_thresh,
+            gaze_target_radius,
+            person_part_distance_scale,
+            person_part_min_conf,
+            set(selected_object_classes),
+        )
 
     def _point_enabled(self, visualization_mode: str) -> bool:
         return visualization_mode in {"point", "both"}
 
     def _heatmap_enabled(self, visualization_mode: str) -> bool:
         return visualization_mode in {"heatmap", "both"}
-
-    def _point_hits_box(
-        self,
-        x: int,
-        y: int,
-        x1: int,
-        y1: int,
-        x2: int,
-        y2: int,
-        radius: int,
-    ) -> bool:
-        if radius <= 0:
-            return x1 <= x <= x2 and y1 <= y <= y2
-
-        closest_x = min(max(x, x1), x2)
-        closest_y = min(max(y, y1), y2)
-        dx = x - closest_x
-        dy = y - closest_y
-        return (dx * dx) + (dy * dy) <= (radius * radius)
 
     def _should_draw_object(self, detection: dict, selected_object_classes: list[str]) -> bool:
         cls_name = str(detection.get("cls", ""))
