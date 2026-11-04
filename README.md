@@ -230,6 +230,7 @@ We compared configurations on 12 sessions of the [Chiba Three-party Conversation
 - Lower stage FPS values, especially for stages other than gaze, to reduce repeated detection work.
 - `yolo-pose` skips face detection altogether, and `scrfd` is the fastest face detector.
 - The gaze model runs on several frames at once, in float16 on CUDA and Apple MPS (`gaze_half_precision=True` by default); on CUDA this is about 3x faster than frame by frame in float32 with the same results.
+- Person and object tracking run YOLO on 16 frames at a time, in float16 on CUDA; on our benchmark this halved the tracking time with the same results.
 - If you only need the CSV and ELAN outputs, turn off `Render visualization videos` (`render_video=False`) to skip drawing and encoding the annotated videos.
 
 ## Output Files

@@ -106,6 +106,7 @@ class ModelManager:
         self.loaded_device: str | None = None
         self.loaded_object_detection_backend: str | None = None
         self.loaded_person_detection_backend: str | None = None
+        self._yolo_used_in_half: set[str] = set()
         self._configure_download_environment()
 
     def _configure_download_environment(self) -> None:
@@ -166,6 +167,24 @@ class ModelManager:
             return torch.matmul(attn, value)
 
         F.scaled_dot_product_attention = _scaled_dot_product_attention
+
+    def yolo_model(self, name: str, half: bool) -> YOLO:
+        """Return the "yolo" or "yolo_pose" model ready for one run at the given precision.
+
+        ultralytics converts a model to float16 in place, and converting it back keeps the rounded
+        weights, so a model used in float16 is reloaded before a float32 run. Its predictor is dropped
+        too: ultralytics would otherwise keep the first run's device and precision.
+        """
+        if not half and name in self._yolo_used_in_half:
+            path = self.paths.yolo_pose_path if name == "yolo_pose" else self.yolo_object_path(self.loaded_object_detection_backend)
+            setattr(self, name, YOLO(path))
+            self._yolo_used_in_half.discard(name)
+        if half:
+            self._yolo_used_in_half.add(name)
+        model = getattr(self, name)
+        assert model is not None
+        model.predictor = None
+        return model
 
     def yolo_object_path(self, backend: str) -> Path:
         return self.paths.app_dir / f"{backend}.pt"
@@ -426,9 +445,11 @@ class ModelManager:
         if self.yolo is None or self.loaded_object_detection_backend != object_detection_backend:
             self.yolo = YOLO(self.yolo_object_path(object_detection_backend))
             self.loaded_object_detection_backend = object_detection_backend
+            self._yolo_used_in_half.discard("yolo")
         if self.yolo_pose is None or self.loaded_person_detection_backend != person_detection_backend:
             self.yolo_pose = YOLO(self.paths.yolo_pose_path)
             self.loaded_person_detection_backend = person_detection_backend
+            self._yolo_used_in_half.discard("yolo_pose")
         if face_detection_backend == "mediapipe" and self.mediapipe_face_detector is None:
             self._load_mediapipe_face_detector()
         # RetinaFace pads every input to a max_size square; it only ever sees head crops.

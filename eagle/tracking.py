@@ -6,7 +6,7 @@ import pandas as pd
 import torch
 import yaml
 
-from .constants import OBJECT_COLUMNS
+from .constants import OBJECT_COLUMNS, YOLO_BATCH_SIZE
 from .models import ModelManager
 from .progress import update_progress
 from .temporal import ObjectTrackSmoother, PersonTrackPostprocessor
@@ -202,8 +202,7 @@ class ObjectTracker:
         return raw_rows
 
     def _detect_image_persons(self, context: MediaContext, device: str, det_thresh: float) -> list[dict[str, Any]]:
-        assert self.models.yolo_pose is not None
-        results = self.models.yolo_pose.predict(
+        results = self.models.yolo_model("yolo_pose", half=False).predict(
             source=str(context.media_path),
             verbose=False,
             device=self._yolo_device(device),
@@ -213,8 +212,7 @@ class ObjectTracker:
         return self._pose_rows_from_image_result(results[0], det_thresh)
 
     def _detect_image_non_persons(self, context: MediaContext, device: str, det_thresh: float) -> list[dict[str, Any]]:
-        assert self.models.yolo is not None
-        results = self.models.yolo.predict(
+        results = self.models.yolo_model("yolo", half=False).predict(
             source=str(context.media_path),
             verbose=False,
             device=self._yolo_device(device),
@@ -224,25 +222,23 @@ class ObjectTracker:
         return self._non_person_rows_from_result(0, results[0], context, det_thresh)
 
     def _run_pose_track(self, context: MediaContext, device: str):
-        assert self.models.yolo_pose is not None
-        return self.models.yolo_pose.track(
-            source=str(context.media_path),
-            stream=True,
-            verbose=False,
-            tracker=str(self.paths.botsort_runtime_path),
-            vid_stride=context.person_stride,
-            device=self._yolo_device(device),
-        )
+        return self._track_video("yolo_pose", context, device, context.person_stride)
 
     def _run_object_track(self, context: MediaContext, device: str):
-        assert self.models.yolo is not None
-        return self.models.yolo.track(
+        return self._track_video("yolo", context, device, context.object_stride)
+
+    def _track_video(self, model_name: str, context: MediaContext, device: str, stride: int):
+        # Batched float16 inference: per-frame calls are bound by launch overhead, not by the GPU.
+        half = device.startswith("cuda")
+        return self.models.yolo_model(model_name, half).track(
             source=str(context.media_path),
             stream=True,
             verbose=False,
             tracker=str(self.paths.botsort_runtime_path),
-            vid_stride=context.object_stride,
+            vid_stride=stride,
             device=self._yolo_device(device),
+            batch=YOLO_BATCH_SIZE,
+            half=half,
         )
 
     def _yolo_device(self, device: str) -> str | torch.device:

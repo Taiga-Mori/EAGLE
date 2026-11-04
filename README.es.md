@@ -228,6 +228,7 @@ Comparamos configuraciones en 12 sesiones del [Chiba Three-party Conversation Co
 - Reduce los FPS de cada etapa para disminuir trabajo de detección repetido, especialmente en etapas distintas de gaze.
 - `yolo-pose` omite por completo la detección de rostros, y `scrfd` es el detector de rostros más rápido.
 - El modelo de mirada procesa varios fotogramas a la vez, en float16 en CUDA y en Apple MPS (`gaze_half_precision=True` por defecto); en CUDA es unas 3 veces más rápido que fotograma a fotograma en float32 y con los mismos resultados.
+- El seguimiento de personas y objetos ejecuta YOLO sobre 16 fotogramas a la vez, en float16 en CUDA; en nuestra evaluación redujo a la mitad el tiempo de seguimiento con los mismos resultados.
 - Si solo necesitas las salidas CSV y ELAN, desactiva `Render visualization videos` (`render_video=False`) para omitir el dibujo y la codificación de los vídeos anotados.
 
 ## Archivos de salida

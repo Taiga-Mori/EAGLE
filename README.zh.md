@@ -228,6 +228,7 @@ UI 暴露了 [`config/botsort.yaml`](config/botsort.yaml) 中的这些 tracker �
 - 降低各阶段 FPS 可以减少重复检测工作，尤其是 gaze 以外的阶段。
 - `yolo-pose` 完全跳过人脸检测；在人脸检测器中 `scrfd` 最快。
 - 视线模型会一次处理多帧，在 CUDA 和 Apple MPS 上使用 float16（默认 `gaze_half_precision=True`）；在 CUDA 上比逐帧 float32 推理快约 3 倍，结果相同。
+- 人物和物体跟踪会让 YOLO 一次处理 16 帧，在 CUDA 上使用 float16；在我们的基准测试中，跟踪时间减半且结果相同。
 - 如果只需要 CSV 和 ELAN 输出，可以关闭 `Render visualization videos`（`render_video=False`），跳过注释视频的绘制和编码。
 
 ## 输出文件

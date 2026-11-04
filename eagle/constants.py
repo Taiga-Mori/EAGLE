@@ -138,6 +138,8 @@ FACE_CROP_HEAD_SCALE = 4.0
 HEAD_CROP_FACE_BACKENDS = {"retinaface", "mediapipe"}
 # Sampled frames passed to the gaze model per forward pass; batching amortizes per-call overhead.
 GAZE_BATCH_SIZE = 8
+# Video frames passed to YOLO per forward pass when tracking persons and objects.
+YOLO_BATCH_SIZE = 16
 PERSON_DETECTION_BACKENDS = {
     "yolo26x-pose": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-pose.pt",
 }

@@ -1,4 +1,5 @@
 import bisect
+import math
 import cv2
 import numpy as np
 import pandas as pd
@@ -191,23 +192,20 @@ class ObjectTrackSmoother:
     def _serialize_pose_keypoints(self, geometry_df: pd.DataFrame, keypoint_count: int) -> pd.Series:
         if keypoint_count == 0:
             return pd.Series([None] * len(geometry_df), index=geometry_df.index)
+        # Read the columns as plain lists once; per-cell pandas access made this slow on long videos.
+        xs = [geometry_df[f"{index}_x"].astype(float).tolist() for index in range(keypoint_count)]
+        ys = [geometry_df[f"{index}_y"].astype(float).tolist() for index in range(keypoint_count)]
+        confs = [geometry_df[f"{index}_conf"].astype(float).tolist() for index in range(keypoint_count)]
         output: list[str | None] = []
-        for row_index in geometry_df.index:
+        for row in range(len(geometry_df)):
             keypoints: list[list[float | None]] = []
             for keypoint_index in range(keypoint_count):
-                x = geometry_df.at[row_index, f"{keypoint_index}_x"]
-                y = geometry_df.at[row_index, f"{keypoint_index}_y"]
-                conf = geometry_df.at[row_index, f"{keypoint_index}_conf"]
-                if pd.isna(x) or pd.isna(y):
-                    keypoints.append([None, None, None if pd.isna(conf) else float(conf)])
-                    continue
-                keypoints.append(
-                    [
-                        float(x),
-                        float(y),
-                        None if pd.isna(conf) else float(conf),
-                    ]
-                )
+                x, y, conf = xs[keypoint_index][row], ys[keypoint_index][row], confs[keypoint_index][row]
+                conf_value = None if math.isnan(conf) else conf
+                if math.isnan(x) or math.isnan(y):
+                    keypoints.append([None, None, conf_value])
+                else:
+                    keypoints.append([x, y, conf_value])
             output.append(json.dumps(keypoints, ensure_ascii=False))
         return pd.Series(output, index=geometry_df.index)
 
@@ -265,13 +263,16 @@ class ObjectTrackSmoother:
                     break
                 before = index - 1
                 after = end + 1
-                reference_diag = max(float(np.median([diagonals[before], diagonals[after]])), 1.0)
-                before_after_distance = float(np.linalg.norm(centers[before] - centers[after]))
+                # The median of two values is their mean; numpy's median call dominated this loop.
+                reference_diag = max((float(diagonals[before]) + float(diagonals[after])) / 2.0, 1.0)
+                before_after_distance = math.hypot(*(centers[before] - centers[after]))
                 if before_after_distance > reference_diag * 0.50:
                     continue
                 anchor = (centers[before] + centers[after]) / 2.0
                 island_distances = np.linalg.norm(centers[index : end + 1] - anchor, axis=1)
-                if float(np.median(island_distances)) <= reference_diag * 0.75:
+                limit = reference_diag * 0.75
+                # If every distance is within the limit, so is the median; skip computing it.
+                if float(island_distances.max()) <= limit or float(np.median(island_distances)) <= limit:
                     continue
                 best_end = end
 
