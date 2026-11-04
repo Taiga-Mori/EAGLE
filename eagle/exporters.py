@@ -270,32 +270,29 @@ class AnnotationExporter:
 
         target_rows = []
         face_keys = set(zip(face_df["frame_idx"].astype(int), face_df["track_id"].astype(str)))
-        valid_gaze_rows = []
-        for _, gaze_row in gaze_df.iterrows():
-            key = (int(gaze_row["frame_idx"]), str(gaze_row["track_id"]))
-            if key in face_keys:
-                valid_gaze_rows.append(gaze_row)
-        valid_gaze_df = pd.DataFrame(valid_gaze_rows)
-        # Split per frame once; filtering the full tables for every gaze row is quadratic on long videos.
-        face_by_frame = {int(frame_idx): group for frame_idx, group in face_df.groupby("frame_idx")}
-        object_by_frame = {int(frame_idx): group for frame_idx, group in object_df.groupby("frame_idx")}
-        empty_face_df = face_df.iloc[0:0]
-        empty_object_df = object_df.iloc[0:0]
-        for _, gaze_row in valid_gaze_df.iterrows():
+        # Split per frame once into plain records: pandas filtering and row access per gaze row made the
+        # export take about a minute for a 10-minute video.
+        face_by_frame = self._records_by_frame(face_df)
+        object_by_frame = self._records_by_frame(object_df)
+        selected_classes = set(selected_object_classes)
+        for gaze_row in gaze_df.to_dict(orient="records"):
             frame_idx = int(gaze_row["frame_idx"])
+            track_id = str(gaze_row["track_id"])
+            if (frame_idx, track_id) not in face_keys:
+                continue
             target_rows.append(
                 {
                     "frame_idx": frame_idx,
-                    "track_id": str(gaze_row["track_id"]),
+                    "track_id": track_id,
                     "target": self._resolve_target(
                         gaze_row,
-                        object_by_frame.get(frame_idx, empty_object_df),
-                        face_by_frame.get(frame_idx, empty_face_df),
+                        object_by_frame.get(frame_idx, []),
+                        face_by_frame.get(frame_idx, []),
                         det_thresh,
                         gaze_target_radius,
                         person_part_distance_scale,
                         person_part_min_conf,
-                        selected_object_classes,
+                        selected_classes,
                     ),
                 }
             )
@@ -365,6 +362,13 @@ class AnnotationExporter:
         self._write_annotation_csv(annotation_df, context)
         return annotation_df
 
+    @staticmethod
+    def _records_by_frame(df: pd.DataFrame) -> dict[int, list[dict]]:
+        records_by_frame: dict[int, list[dict]] = {}
+        for record in df.to_dict(orient="records"):
+            records_by_frame.setdefault(int(record["frame_idx"]), []).append(record)
+        return records_by_frame
+
     @classmethod
     def _smooth_track_labels(cls, group: pd.DataFrame, window: int) -> pd.DataFrame:
         """Mode-filter one track's frame-wise targets within each run of consecutive frames."""
@@ -405,14 +409,14 @@ class AnnotationExporter:
 
     def _resolve_target(
         self,
-        gaze_row: pd.Series,
-        object_df: pd.DataFrame,
-        face_df: pd.DataFrame,
+        gaze_row: dict,
+        frame_objects: list[dict],
+        frame_faces: list[dict],
         det_thresh: float,
         gaze_target_radius: int,
         person_part_distance_scale: float,
         person_part_min_conf: float,
-        selected_object_classes: list[str],
+        selected_object_classes: set[str],
     ) -> str:
         if pd.isna(gaze_row["inout"]):
             return "out of frame"
@@ -425,11 +429,9 @@ class AnnotationExporter:
 
         candidates: list[tuple[float, str]] = []
 
-        face_hits = face_df[
-            (face_df["frame_idx"] == int(gaze_row["frame_idx"]))
-            & (face_df["track_id"].astype(str) != str(gaze_row["track_id"]))
-        ]
-        for _, hit in face_hits.iterrows():
+        for hit in frame_faces:
+            if str(hit["track_id"]) == str(gaze_row["track_id"]):
+                continue
             if self._point_hits_box(
                 int(gaze_row["x_gaze"]),
                 int(gaze_row["y_gaze"]),
@@ -441,10 +443,7 @@ class AnnotationExporter:
             ):
                 candidates.append((float(hit["face_area"]), f"person {hit['track_id']}'s face"))
 
-        hits = object_df[
-            (object_df["frame_idx"] == int(gaze_row["frame_idx"]))
-        ]
-        for _, hit in hits.iterrows():
+        for hit in frame_objects:
             if self._point_hits_box(
                 int(gaze_row["x_gaze"]),
                 int(gaze_row["y_gaze"]),
@@ -456,7 +455,7 @@ class AnnotationExporter:
             ):
                 if str(hit["cls"]) == "person":
                     part_label = resolve_person_part_label(
-                        hit.to_dict(),
+                        hit,
                         int(gaze_row["x_gaze"]),
                         int(gaze_row["y_gaze"]),
                         gaze_target_radius,
@@ -465,7 +464,7 @@ class AnnotationExporter:
                     )
                     if part_label is not None and part_label != "other":
                         candidates.append((float(hit["area"]), f"person {hit['track_id']}'s {part_label}"))
-                elif str(hit["cls"]) in set(selected_object_classes):
+                elif str(hit["cls"]) in selected_object_classes:
                     candidates.append((float(hit["area"]), str(hit["label"])))
 
         if not candidates:

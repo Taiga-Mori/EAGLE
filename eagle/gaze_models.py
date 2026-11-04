@@ -46,9 +46,11 @@ PAGE_MODELS = {
 
 
 def _half_precision_context(device: str, enabled: bool):
-    # float16 autocast is only used on CUDA, where it runs the ViT matmuls on tensor cores.
-    if enabled and device.startswith("cuda"):
-        return torch.autocast(device_type="cuda", dtype=torch.float16)
+    # float16 autocast runs the ViT matmuls on CUDA tensor cores, and in half precision on Apple GPUs
+    # (MPS, untested so far). Other devices, or PyTorch builds without MPS autocast, stay in float32.
+    device_type = device.split(":")[0]
+    if enabled and device_type in ("cuda", "mps") and torch.amp.is_autocast_available(device_type):
+        return torch.autocast(device_type=device_type, dtype=torch.float16)
     return nullcontext()
 
 

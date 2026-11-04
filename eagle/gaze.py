@@ -168,6 +168,7 @@ class FaceGazeEstimator:
         selected_object_classes: list[str],
         reuse_cached_gaze: bool = False,
         progress_bar=None,
+        render_video: bool = True,
     ) -> pd.DataFrame:
         object_df = self._load_scene_detections(context)
         if not context.faces_path.exists():
@@ -201,6 +202,7 @@ class FaceGazeEstimator:
                 gaze_point_method,
                 selected_object_classes,
                 progress_bar,
+                render_video=render_video,
             )
             if cached_result is not None:
                 return cached_result
@@ -243,6 +245,7 @@ class FaceGazeEstimator:
                 records=records,
                 selected_object_classes=selected_object_classes,
                 progress_bar=progress_bar,
+                render_video=render_video,
             )
 
         self._update_progress(progress_bar, 0, 1, "Saving gaze outputs...")
@@ -389,6 +392,7 @@ class FaceGazeEstimator:
         records: list[dict],
         selected_object_classes: list[str],
         progress_bar=None,
+        render_video: bool = True,
     ) -> dict[int, dict[int, GazePoint]]:
         sparse_gaze_by_frame: dict[int, dict[int, GazePoint]] = {}
         self._collect_sparse_gazes(
@@ -465,6 +469,7 @@ class FaceGazeEstimator:
             offscreen_directions_by_frame,
             offscreen_angles_by_frame,
             progress_bar,
+            render_video=render_video,
         )
         # Only the model's own heatmaps are cached; the frames in between are re-interpolated on load.
         return sparse_gaze_by_frame
@@ -769,13 +774,17 @@ class FaceGazeEstimator:
         offscreen_directions_by_frame: dict[int, dict[str, str]] | None = None,
         offscreen_angles_by_frame: dict[int, dict[str, tuple[float, float]]] | None = None,
         progress_bar=None,
+        render_video: bool = True,
     ) -> None:
-        render_capture = cv2.VideoCapture(str(context.media_path))
-        if not render_capture.isOpened():
+        """Write the per-frame gaze records and, when render_video is set, stream the annotated videos."""
+        point_enabled = render_video and self._point_enabled(visualization_mode)
+        heatmap_enabled = render_video and self._heatmap_enabled(visualization_mode)
+        # Without rendering, frames are only needed to estimate off-screen directions on the fly.
+        read_frames = render_video or (offscreen_directions_by_frame is None and device is not None)
+        render_capture = cv2.VideoCapture(str(context.media_path)) if read_frames else None
+        if render_capture is not None and not render_capture.isOpened():
             raise FileNotFoundError(f"Could not open video: {context.media_path}")
-
-        point_enabled = self._point_enabled(visualization_mode)
-        heatmap_enabled = self._heatmap_enabled(visualization_mode)
+        progress_label = "Rendering outputs..." if render_video else "Collecting gaze outputs..."
         expected_steps = max(1, context.total_frames)
         render_step = 0
         heatmap_track_ids: list[str] = []
@@ -793,10 +802,12 @@ class FaceGazeEstimator:
 
         try:
             for frame_idx in range(context.total_frames):
-                ret, frame = render_capture.read()
-                if not ret:
-                    break
-                if frame_idx == 0:
+                frame = None
+                if render_capture is not None:
+                    ret, frame = render_capture.read()
+                    if not ret:
+                        break
+                if frame_idx == 0 and render_video:
                     point_writer, heatmap_writers = self._open_render_writers(
                         context, frame, point_enabled, heatmap_track_ids
                     )
@@ -831,6 +842,12 @@ class FaceGazeEstimator:
                     offscreen_angles = offscreen_angle_map.get(track_id) or self._offscreen_angle_tuple(
                         offscreen_direction_map.get(track_id)
                     )
+                    if detection["cls"] == "person":
+                        records.append(
+                            asdict(
+                                self.to_record(frame_idx, track_id, face, gaze, offscreen_direction, offscreen_angles)
+                            )
+                        )
                     if point_enabled:
                         assert annotated_frame is not None
                         annotated_frame = self.annotator.draw_object(annotated_frame, detection)
@@ -850,18 +867,6 @@ class FaceGazeEstimator:
                                 offscreen_angles,
                             )
                         if detection["cls"] == "person":
-                            records.append(
-                                asdict(
-                                    self.to_record(
-                                        frame_idx,
-                                        track_id,
-                                        face,
-                                        gaze,
-                                        offscreen_direction,
-                                        offscreen_angles,
-                                    )
-                                )
-                            )
                             target_label = self._resolve_target_label(
                                 track_id,
                                 gaze,
@@ -882,19 +887,6 @@ class FaceGazeEstimator:
                             )
                     if heatmap_enabled and detection["cls"] == "person":
                         visible_person_detections[track_id] = detection
-                        if not point_enabled:
-                            records.append(
-                                asdict(
-                                    self.to_record(
-                                        frame_idx,
-                                        track_id,
-                                        face,
-                                        gaze,
-                                        offscreen_direction,
-                                        offscreen_angles,
-                                    )
-                                )
-                            )
 
                 if heatmap_enabled:
                     for track_id in heatmap_track_ids:
@@ -922,12 +914,7 @@ class FaceGazeEstimator:
                     point_writer.write(annotated_frame)
 
                 render_step += 1
-                self._update_progress(
-                    progress_bar,
-                    render_step,
-                    expected_steps,
-                    "Rendering outputs...",
-                )
+                self._update_progress(progress_bar, render_step, expected_steps, progress_label)
             while writers:
                 writers.pop().close()
         except BaseException:
@@ -935,7 +922,8 @@ class FaceGazeEstimator:
                 writer.abort()
             raise
         finally:
-            render_capture.release()
+            if render_capture is not None:
+                render_capture.release()
 
     def _open_render_writers(
         self,
@@ -981,6 +969,7 @@ class FaceGazeEstimator:
         gaze_point_method: str,
         selected_object_classes: list[str],
         progress_bar=None,
+        render_video: bool = True,
     ) -> pd.DataFrame | None:
         if not context.gaze_path.exists() or not context.gaze_heatmaps_path.exists() or not context.gaze_meta_path.exists():
             return None
@@ -1069,6 +1058,7 @@ class FaceGazeEstimator:
                 person_part_min_conf,
                 selected_object_classes,
                 progress_bar,
+                render_video=render_video,
             )
         return gaze_df
 
@@ -1172,6 +1162,7 @@ class FaceGazeEstimator:
         person_part_min_conf: float,
         selected_object_classes: list[str],
         progress_bar=None,
+        render_video: bool = True,
     ) -> None:
         face_maps_by_frame = self._face_maps_from_face_df(face_df)
         offscreen_directions_by_frame = self._offscreen_directions_from_gaze_df(gaze_df)
@@ -1195,6 +1186,7 @@ class FaceGazeEstimator:
             offscreen_directions_by_frame,
             offscreen_angles_by_frame,
             progress_bar,
+            render_video=render_video,
         )
 
     def _save_heatmap_cache(

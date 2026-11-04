@@ -497,6 +497,7 @@ def main() -> None:
             person_part_distance_scale = float(st.session_state.get("person_part_distance_scale", 0.10))
             person_part_min_conf = float(st.session_state.get("person_part_min_conf", 0.0))
             face_fallback_min_size_scale = float(st.session_state.get("face_fallback_min_size_scale", 1.0))
+            render_video = bool(st.session_state.get("render_video", True))
             selected_object_classes = normalize_selected_classes(
                 st.session_state.get("selected_object_classes", list(COCO_OBJECT_CLASSES))
             )
@@ -848,6 +849,12 @@ def main() -> None:
                     options=["both", "point", "heatmap"],
                     index=["both", "point", "heatmap"].index(st.session_state.get("visualization_mode", "both")),
                 )
+                render_video = st.checkbox(
+                    "Render visualization videos",
+                    value=bool(st.session_state.get("render_video", True)),
+                    help="Videos only. Turn off when only the CSV and ELAN outputs are needed; gaze estimation then "
+                    "skips drawing and encoding the annotated videos.",
+                )
                 heatmap_alpha = float(
                     st.slider(
                         "Heatmap alpha",
@@ -893,6 +900,7 @@ def main() -> None:
         st.session_state.person_detection_backend = person_detection_backend
         st.session_state.object_detection_backend = object_detection_backend
         st.session_state.visualization_mode = visualization_mode
+        st.session_state.render_video = render_video
         st.session_state.face_detection_backend = face_detection_backend
         st.session_state.gaze_detection_backend = gaze_detection_backend
         st.session_state.head_pose_detection_backend = head_pose_detection_backend
@@ -977,6 +985,7 @@ def main() -> None:
                 updates=tracker_updates,
                 device=st.session_state.device,
                 visualization_mode=st.session_state.visualization_mode,
+                render_video=st.session_state.render_video,
                 heatmap_alpha=st.session_state.heatmap_alpha,
                 face_detection_backend=st.session_state.face_detection_backend,
                 gaze_target_radius=st.session_state.gaze_target_radius,

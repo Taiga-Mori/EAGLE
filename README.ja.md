@@ -227,7 +227,8 @@ UI では [`config/botsort.yaml`](config/botsort.yaml) の以下の tracker 設�
 - NVIDIA GPU が使える環境では `cuda:*`、Apple Silicon では利用可能なら `mps` を使ってください。
 - 各ステージの FPS を下げると処理量を減らせます。特に視線以外のステージで効果が出やすいです。
 - `yolo-pose` は顔検出そのものを省きます。顔検出器の中では `scrfd` が最も高速です。
-- CUDA では、視線モデルを複数フレームまとめて float16 で推論します（既定で `gaze_half_precision=True`）。1フレームずつ float32 で推論するより約3倍速く、結果は同じです。
+- 視線モデルは複数フレームをまとめて推論し、CUDA と Apple の MPS では float16 を使います（既定で `gaze_half_precision=True`）。CUDA では、1フレームずつ float32 で推論するより約3倍速く、結果は同じです。
+- CSV と ELAN 用の出力だけが必要な場合は、`Render visualization videos` をオフ（`render_video=False`）にすると、注釈付き動画の描画とエンコードを省けます。
 
 ## 出力ファイル
 現在の出力には次が含まれます。

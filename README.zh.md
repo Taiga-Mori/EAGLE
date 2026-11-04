@@ -227,7 +227,8 @@ UI 暴露了 [`config/botsort.yaml`](config/botsort.yaml) 中的这些 tracker �
 - 在 NVIDIA GPU 上使用 `cuda:*`；在 Apple Silicon 上如可用则使用 `mps`。
 - 降低各阶段 FPS 可以减少重复检测工作，尤其是 gaze 以外的阶段。
 - `yolo-pose` 完全跳过人脸检测；在人脸检测器中 `scrfd` 最快。
-- 在 CUDA 上，视线模型会一次处理多帧并使用 float16（默认 `gaze_half_precision=True`），比逐帧 float32 推理快约 3 倍，结果相同。
+- 视线模型会一次处理多帧，在 CUDA 和 Apple MPS 上使用 float16（默认 `gaze_half_precision=True`）；在 CUDA 上比逐帧 float32 推理快约 3 倍，结果相同。
+- 如果只需要 CSV 和 ELAN 输出，可以关闭 `Render visualization videos`（`render_video=False`），跳过注释视频的绘制和编码。
 
 ## 输出文件
 当前输出可能包括：

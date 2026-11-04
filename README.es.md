@@ -227,7 +227,8 @@ Comparamos configuraciones en 12 sesiones del [Chiba Three-party Conversation Co
 - Usa `cuda:*` en GPU NVIDIA, o `mps` en Apple Silicon cuando esté disponible.
 - Reduce los FPS de cada etapa para disminuir trabajo de detección repetido, especialmente en etapas distintas de gaze.
 - `yolo-pose` omite por completo la detección de rostros, y `scrfd` es el detector de rostros más rápido.
-- En CUDA, el modelo de mirada procesa varios fotogramas a la vez en float16 (`gaze_half_precision=True` por defecto), unas 3 veces más rápido que fotograma a fotograma en float32 y con los mismos resultados.
+- El modelo de mirada procesa varios fotogramas a la vez, en float16 en CUDA y en Apple MPS (`gaze_half_precision=True` por defecto); en CUDA es unas 3 veces más rápido que fotograma a fotograma en float32 y con los mismos resultados.
+- Si solo necesitas las salidas CSV y ELAN, desactiva `Render visualization videos` (`render_video=False`) para omitir el dibujo y la codificación de los vídeos anotados.
 
 ## Archivos de salida
 Las salidas actuales pueden incluir:

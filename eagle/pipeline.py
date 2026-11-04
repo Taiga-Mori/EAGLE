@@ -94,6 +94,7 @@ class EAGLE:
         face_smoothing_window: int = 5,
         gaze_label_smoothing_sec: float = 0.3,
         gaze_half_precision: bool = True,
+        render_video: bool = True,
         selected_object_classes: list[str] | None = None,
         reuse_cached_persons: bool = True,
         reuse_cached_objects: bool = True,
@@ -137,6 +138,7 @@ class EAGLE:
             face_smoothing_window=face_smoothing_window,
             gaze_label_smoothing_sec=gaze_label_smoothing_sec,
             gaze_half_precision=gaze_half_precision,
+            render_video=render_video,
             selected_object_classes=selected_object_classes,
             reuse_cached_persons=reuse_cached_persons,
             reuse_cached_objects=reuse_cached_objects,
@@ -280,9 +282,12 @@ class EAGLE:
             selected_object_classes=config.selected_object_classes,
             reuse_cached_gaze=config.reuse_cached_gaze,
             progress_bar=progress_bar,
+            render_video=config.render_video,
         )
 
     def make_video(self):
+        if not self._require_config().render_video:
+            raise RuntimeError("Rendering is turned off (render_video=False), so there is no video to export.")
         return self.exporter.make_video(self._require_context(), self._require_config().visualization_mode)
 
     def make_image(self):
@@ -290,6 +295,8 @@ class EAGLE:
 
     def export_visualization(self):
         if self._require_context().media_type == "video":
+            if not self._require_config().render_video:
+                return []
             return self.make_video()
         return self.make_image()
 

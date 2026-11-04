@@ -69,6 +69,7 @@ class PipelineConfig:
     face_smoothing_window: int
     gaze_label_smoothing_sec: float
     gaze_half_precision: bool
+    render_video: bool
     selected_object_classes: list[str]
     reuse_cached_persons: bool
     reuse_cached_objects: bool
