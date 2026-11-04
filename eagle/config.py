@@ -23,6 +23,7 @@ from .constants import (
     VIDEO_EXTENSIONS,
     VISUALIZATION_MODES,
 )
+from .ffmpeg import ffmpeg_executable
 from .types import AppPaths, MediaContext, PipelineConfig
 
 
@@ -445,10 +446,11 @@ class ConfigManager:
         return normalized_path
 
     def _ffmpeg_executable(self) -> str | None:
-        if self.paths.ffmpeg_path.exists():
-            return str(self.paths.ffmpeg_path)
-        fallback = shutil.which("ffmpeg")
-        return fallback
+        try:
+            return ffmpeg_executable(self.paths.ffmpeg_path)
+        except RuntimeError as exc:
+            print(exc, flush=True)
+            return None
 
     def resolve_effective_fps(
         self,

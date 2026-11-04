@@ -105,6 +105,7 @@ En el primer uso, EAGLE puede descargar y guardar en caché:
 - `L2CSNet_gaze360.pkl`
 - `mobileone_s0.pt`
 - Pesos de GaT (`gat_stwsge_gaze360_gf.ckpt`) y el código Swin3D de Omnivore si se selecciona GaT
+- ffmpeg, si no hay en el PATH un ffmpeg con libx264: una compilación estática para tu plataforma (compilaciones de BtbN para Linux y Windows, y de Martin Riedl para macOS), guardada en `~/.EAGLE/ffmpeg/`
 
 Si falla la carga inicial, comprueba:
 

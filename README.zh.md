@@ -105,6 +105,7 @@ venv/bin/streamlit run app.py
 - `L2CSNet_gaze360.pkl`
 - `mobileone_s0.pt`
 - 选择 GaT 时：权重（`gat_stwsge_gaze360_gf.ckpt`）和 Omnivore 的 Swin3D 代码
+- ffmpeg（PATH 中没有支持 libx264 的 ffmpeg 时）：下载适合当前平台的静态构建（Linux 和 Windows 使用 BtbN，macOS 使用 Martin Riedl 的构建），保存到 `~/.EAGLE/ffmpeg/`
 
 如果首次加载失败，请检查：
 

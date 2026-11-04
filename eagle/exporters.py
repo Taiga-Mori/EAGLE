@@ -11,6 +11,7 @@ import pandas as pd
 
 from .body_parts import resolve_person_part_label
 from .constants import ANNOTATION_COLUMNS
+from .ffmpeg import ffmpeg_executable
 from .types import AppPaths, MediaContext
 
 
@@ -68,7 +69,6 @@ class AnnotationExporter:
     def __init__(self, paths: AppPaths) -> None:
         self.paths = paths
         self._available_ffmpeg_encoders: set[str] | None = None
-        self._ffmpeg_executable: str | None = None
         self._piped_encoders: dict[tuple[int, int], str] = {}
 
     @staticmethod
@@ -115,15 +115,7 @@ class AnnotationExporter:
         ]
 
     def _resolve_ffmpeg_executable(self) -> str:
-        if self._ffmpeg_executable is None:
-            self._ffmpeg_executable = str(self.paths.ffmpeg_path)
-            try:
-                subprocess.run([self._ffmpeg_executable, "-version"], check=True, capture_output=True)
-            except Exception:
-                fallback_ffmpeg = shutil.which("ffmpeg")
-                if fallback_ffmpeg is not None:
-                    self._ffmpeg_executable = fallback_ffmpeg
-        return self._ffmpeg_executable
+        return ffmpeg_executable(self.paths.ffmpeg_path)
 
     def _piped_h264_encoder(self, width: int, height: int, fps: float) -> str:
         # A streamed encode cannot be redone from saved frames, so try the hardware encoder on two
@@ -169,7 +161,7 @@ class AnnotationExporter:
             raise RuntimeError("Run det_faces() and det_gaze() before make_video().")
 
         merge_command = [
-            str(self.paths.ffmpeg_path),
+            self._resolve_ffmpeg_executable(),
             "-y",
             "-i",
             str(silent_video),
@@ -567,22 +559,11 @@ class AnnotationExporter:
         return encoder in self._available_ffmpeg_encoders
 
     def _detect_ffmpeg_encoders(self) -> set[str]:
-        command = [str(self.paths.ffmpeg_path), "-hide_banner", "-encoders"]
         try:
+            command = [self._resolve_ffmpeg_executable(), "-hide_banner", "-encoders"]
             result = subprocess.run(command, check=True, capture_output=True, text=True)
         except Exception:
-            fallback_ffmpeg = shutil.which("ffmpeg")
-            if fallback_ffmpeg is None:
-                return set()
-            try:
-                result = subprocess.run(
-                    [fallback_ffmpeg, "-hide_banner", "-encoders"],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-            except Exception:
-                return set()
+            return set()
 
         encoders: set[str] = set()
         for line in (result.stdout or "").splitlines():

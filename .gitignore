@@ -219,3 +219,6 @@ test.ipynb
 *.pt
 botsort_temp.yaml
 scripts/
+
+# Old bundled ffmpeg binaries; EAGLE now downloads ffmpeg on first use (eagle/ffmpeg.py).
+ffmpeg/

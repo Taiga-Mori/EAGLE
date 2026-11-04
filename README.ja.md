@@ -105,6 +105,7 @@ venv/bin/streamlit run app.py
 - `L2CSNet_gaze360.pkl`
 - `mobileone_s0.pt`
 - GaT 選択時: 重み（`gat_stwsge_gaze360_gf.ckpt`）と Omnivore の Swin3D のコード
+- ffmpeg（libx264 対応の ffmpeg が PATH にない場合）: 環境に合った静的ビルド（Linux と Windows は BtbN、macOS は Martin Riedl のビルド）を `~/.EAGLE/ffmpeg/` に保存します
 
 初回ロードに失敗した場合は、次を確認してください。
 

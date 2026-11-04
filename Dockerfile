@@ -15,6 +15,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    ffmpeg \
     git \
     libgl1 \
     libglib2.0-0 \
@@ -37,8 +38,6 @@ RUN grep -Ev '^(torch|torchvision)==.*' /tmp/requirements.txt > /tmp/requirement
       torchvision==0.20.1
 
 COPY . /app
-
-RUN chmod +x /app/ffmpeg/AMD/ffmpeg
 
 EXPOSE 8501
 

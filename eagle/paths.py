@@ -29,13 +29,8 @@ class PathManager:
         else:
             working_dir = Path(__file__).resolve().parent.parent
 
-        if sys.platform == "darwin":
-            ffmpeg_path = working_dir / "ffmpeg" / "mac" / "ffmpeg"
-        elif sys.platform.startswith("win"):
-            ffmpeg_path = working_dir / "ffmpeg" / "win" / "ffmpeg.exe"
-        else:
-            bundled_linux_ffmpeg = working_dir / "ffmpeg" / "AMD" / "ffmpeg"
-            ffmpeg_path = bundled_linux_ffmpeg if bundled_linux_ffmpeg.exists() else Path("ffmpeg")
+        # Where a downloaded ffmpeg build is kept (see eagle/ffmpeg.py).
+        ffmpeg_path = app_dir / "ffmpeg" / ("ffmpeg.exe" if sys.platform.startswith("win") else "ffmpeg")
 
         self.paths = AppPaths(
             working_dir=working_dir,
