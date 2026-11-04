@@ -27,6 +27,7 @@ from eagle.constants import (
     DEFAULT_HEAD_POSE_DETECTION_BACKEND,
     DEFAULT_OBJECT_DETECTION_BACKEND,
     DEFAULT_PERSON_DETECTION_BACKEND,
+    DEFAULT_TARGET_FPS,
     FACE_DETECTION_BACKENDS,
     GAZE_DETECTION_BACKENDS,
     HEAD_POSE_DETECTION_BACKENDS,
@@ -444,7 +445,7 @@ def main() -> None:
 
             def fps_input(label: str, state_key: str) -> float | None:
                 raw_value = st.session_state.get(state_key)
-                default_value = 15.0 if video_fps is None else float(video_fps)
+                default_value = DEFAULT_TARGET_FPS if video_fps is None else min(DEFAULT_TARGET_FPS, float(video_fps))
                 saved_value = float(default_value if raw_value is None else raw_value)
                 saved_value = max(saved_value, 0.1)
                 if video_fps is not None:
@@ -479,11 +480,12 @@ def main() -> None:
             face_detection_backend = DEFAULT_FACE_DETECTION_BACKEND
             gaze_detection_backend = DEFAULT_GAZE_DETECTION_BACKEND
             head_pose_detection_backend = DEFAULT_HEAD_POSE_DETECTION_BACKEND
-            person_target_fps = video_fps
-            object_target_fps = video_fps
-            face_target_fps = video_fps
-            gaze_target_fps = video_fps
-            head_pose_target_fps = video_fps
+            default_target_fps = DEFAULT_TARGET_FPS if video_fps is None else min(DEFAULT_TARGET_FPS, video_fps)
+            person_target_fps = default_target_fps
+            object_target_fps = default_target_fps
+            face_target_fps = default_target_fps
+            gaze_target_fps = default_target_fps
+            head_pose_target_fps = default_target_fps
 
             person_smoothing_window = int(st.session_state.get("person_smoothing_window", 5))
             person_max_switch_gap = int(st.session_state.get("person_max_switch_gap", 15))

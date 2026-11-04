@@ -20,8 +20,8 @@ EAGLE は、画像・動画解析向けの Streamlit ベース視線アノテー
 - YOLO pose による人物追跡
 - YOLO detection による非人物オブジェクト追跡
 - デフォルトの RetinaFace、または選択可能な SCRFD・MediaPipe による顔検出
-- GAZELLE、GAZELLE-DINOv3、PaGE による視線ヒートマップ推定
-- デフォルトの L2CS-Net、または選択可能な MobileOne gaze による画面外方向推定
+- デフォルトの PaGE、または選択可能な GAZELLE・GAZELLE-DINOv3 による視線ヒートマップ推定
+- デフォルトの GaT、または選択可能な L2CS-Net・MobileOne gaze による画面外方向推定
 - CSV 出力と、注釈付き画像・動画の出力
 
 EAGLE はアノテーション支援ツールであり、正解データを保証するものではありません。研究、分析、報告、意思決定に使用する前に、すべての出力を必ず確認・検証してください。
@@ -98,13 +98,13 @@ venv/bin/streamlit run app.py
 - 選択した YOLO object 重み: `yolo26n.pt`, `yolo26s.pt`, `yolo26m.pt`, `yolo26l.pt`, `yolo26x.pt` のいずれか
 - `yolo26x-pose.pt`
 - RetinaFace の学習済み重み
-- GAZELLE の torch.hub ファイル
+- GAZELLE またはカスタム GAZELLE モデル選択時: GAZELLE の torch.hub ファイル
 - SCRFD 選択時: SCRFD の重み（`scrfd_10g_bnkps.onnx`）
 - GAZELLE-DINOv3 選択時: 重み（`gazelle_dinov3_vitb16.pt`）と DINOv3 のモデルコード
-- PaGE 選択時: Hugging Face（`Octopus1/page-vitb`）の重みとモデルコード
-- `L2CSNet_gaze360.pkl`
-- `mobileone_s0.pt`
-- GaT 選択時: 重み（`gat_stwsge_gaze360_gf.ckpt`）と Omnivore の Swin3D のコード
+- PaGE: Hugging Face（`Octopus1/page-vitb`）の重みとモデルコード
+- L2CS-Net 選択時: `L2CSNet_gaze360.pkl`
+- MobileOne 選択時: `mobileone_s0.pt`
+- GaT: 重み（`gat_stwsge_gaze360_gf.ckpt`）と Omnivore の Swin3D のコード
 
 初回ロードに失敗した場合は、次を確認してください。
 
@@ -153,9 +153,9 @@ venv/bin/streamlit run app.py
 - `Face detection backend`
   - デフォルトは `retinaface` です。SCRFD を使う場合は `scrfd`、MediaPipe を使いたい場合は `mediapipe` を選びます。`yolo-pose` を選ぶと顔検出を行わず、YOLO の姿勢キーポイント（鼻・目・耳）から頭部ボックスを作ります。最も高速で、ベンチマークでは検出した顔と同等に機能しました。`retinaface` と `mediapipe` は、姿勢から推定した各人物の頭のまわりを拡大して切り出した画像で顔を検出します。広角映像の小さい顔も検出でき、フレーム全体で検出するより高速です。`scrfd` はフレーム全体で検出します。
 - `Gaze detection backend`
-  - `gazelle`（公式の GAZELLE 学習済みモデル、DINOv2 ViT-L）、`gazelle_dinov3_vitb16`（GAZELLE-DINOv3、DINOv3 ViT-B）、`page_vitb`（PaGE、DINOv3 ViT-B）、または `~/.EAGLE/custom/gaze/` に置いたファインチューニング済み GAZELLE モデルです。
+  - デフォルトは `page_vitb`（PaGE、DINOv3 ViT-B）です。ほかに `gazelle`（公式の GAZELLE 学習済みモデル、DINOv2 ViT-L）、`gazelle_dinov3_vitb16`（GAZELLE-DINOv3、DINOv3 ViT-B）、または `~/.EAGLE/custom/gaze/` に置いたファインチューニング済み GAZELLE モデルです。
 - `Head pose detection backend`
-  - 画面外を見ている人の視線方向を推定します。デフォルトは `l2cs`（顔画像から視線を推定）です。以前の MobileOne ベースのモデルを使う場合は `mobileone`、GaT（ST-WSGE、CVPR 2025）を使う場合は `gat` を選びます。GaT は頭部画像から3次元の視線を推定するため、顔が横向きや後ろ向きでも推定できます。
+  - 画面外を見ている人の視線方向を推定します。デフォルトは `gat`（GaT、ST-WSGE、CVPR 2025）です。GaT は頭部画像から3次元の視線を推定するため、顔が横向きや後ろ向きでも推定できます。顔画像から視線を推定する場合は `l2cs`、以前の MobileOne ベースのモデルを使う場合は `mobileone` を選びます。
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
   - 人物姿勢追跡、人物以外のオブジェクト追跡、顔検出、視線 in/out 解釈に個別に使うしきい値です。
 - `Visualization mode`
@@ -187,7 +187,7 @@ venv/bin/streamlit run app.py
 - `Gaze label smoothing (seconds, 0=disabled)`
   - 動画のみ。`annotation.csv` の各フレームの注視対象を、この長さ（既定 0.3 秒）の中心窓内で最も多い注視対象に置き換え、短いちらつきを除去します。視線点やヒートマップ自体は平滑化しません。
 - `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
-  - 動画のみ。各ステージを指定した target FPS で実行し、それぞれの中間生成物を書き出します。
+  - 動画のみ。各ステージを指定した target FPS で実行し、それぞれの中間生成物を書き出します。既定はすべてのステージで 15 FPS（動画の FPS の方が低ければ動画の FPS）です。ベンチマークでは全フレーム処理と同じ精度でした。
 
 重要:
 
@@ -227,7 +227,8 @@ UI では [`config/botsort.yaml`](config/botsort.yaml) の以下の tracker 設�
 - NVIDIA GPU が使える環境では `cuda:*`、Apple Silicon では利用可能なら `mps` を使ってください。
 - 各ステージの FPS を下げると処理量を減らせます。特に視線以外のステージで効果が出やすいです。
 - `yolo-pose` は顔検出そのものを省きます。顔検出器の中では `scrfd` が最も高速です。
-- 視線モデルは複数フレームをまとめて推論し、CUDA と Apple の MPS では float16 を使います（既定で `gaze_half_precision=True`）。CUDA では、1フレームずつ float32 で推論するより約3倍速く、結果は同じです。
+- 視線モデルは複数フレームをまとめて推論し、CUDA では float16 を使います（既定で `gaze_half_precision=True`）。CUDA では、1フレームずつ float32 で推論するより約3倍速く、結果は同じです。Apple の MPS では float32 のままです。M3 では float16 にすると 64x64 のヒートマップ上でピークが最大 50 px ずれ（GAZELLE-DINOv3）、速くもなりませんでした。
+- Apple の MPS では、attention 層を PyTorch の SDPA カーネルではなく通常の行列積で計算します。M3 では結果を変えずに視線モデルが 25〜30% 速くなりました。
 - 人物と物体の追跡では、YOLO を16フレームずつまとめて推論し、CUDA では float16 を使います。ベンチマークでは結果を変えずに追跡時間が約半分になりました。
 - CSV と ELAN 用の出力だけが必要な場合は、`Render visualization videos` をオフ（`render_video=False`）にすると、注釈付き動画の描画とエンコードを省けます。
 
@@ -347,8 +348,8 @@ eagle.preprocess(
     person_detection_backend="yolo26x-pose",
     object_detection_backend="yolo26x",
     face_detection_backend="retinaface",
-    gaze_detection_backend="gazelle",
-    head_pose_detection_backend="l2cs",
+    gaze_detection_backend="page_vitb",
+    head_pose_detection_backend="gat",
     device="cpu",
     visualization_mode="both",
     person_part_min_conf=0.0,

@@ -21,8 +21,8 @@ EAGLE is a Streamlit-based gaze annotation support tool for image and video anal
 - Person tracking with YOLO pose
 - Non-person object tracking with YOLO detection
 - Face detection with RetinaFace by default, with SCRFD and MediaPipe also available
-- Gaze heatmap estimation with GAZELLE, GAZELLE-DINOv3, or PaGE
-- Off-screen direction estimation with L2CS-Net by default, with MobileOne also available
+- Gaze heatmap estimation with PaGE by default, with GAZELLE and GAZELLE-DINOv3 also available
+- Off-screen direction estimation with GaT by default, with L2CS-Net and MobileOne also available
 - CSV export plus annotated image/video export
 
 EAGLE is an annotation assistance tool, not guaranteed ground truth. You must review and validate all outputs before using them in research, analysis, reporting, or decision-making.
@@ -99,13 +99,13 @@ On first use, EAGLE may download and cache:
 - YOLO object weights as needed: `yolo26n.pt`, `yolo26s.pt`, `yolo26m.pt`, `yolo26l.pt`, or `yolo26x.pt`
 - `yolo26x-pose.pt`
 - RetinaFace pretrained weights
-- GAZELLE torch.hub files
+- GAZELLE torch.hub files when GAZELLE or a custom GAZELLE model is selected
 - SCRFD weights (`scrfd_10g_bnkps.onnx`) when SCRFD is selected
 - GAZELLE-DINOv3 weights (`gazelle_dinov3_vitb16.pt`) and the DINOv3 model code when GAZELLE-DINOv3 is selected
-- PaGE weights and model code from Hugging Face (`Octopus1/page-vitb`) when PaGE is selected
-- `L2CSNet_gaze360.pkl`
-- `mobileone_s0.pt`
-- GaT weights (`gat_stwsge_gaze360_gf.ckpt`) and the Omnivore Swin3D code when GaT is selected
+- PaGE weights and model code from Hugging Face (`Octopus1/page-vitb`)
+- `L2CSNet_gaze360.pkl` when L2CS-Net is selected
+- `mobileone_s0.pt` when MobileOne is selected
+- GaT weights (`gat_stwsge_gaze360_gf.ckpt`) and the Omnivore Swin3D code
 
 If first-run loading fails, check:
 
@@ -154,9 +154,9 @@ Output directory behavior:
 - `Face detection backend`
   - `retinaface` by default, `scrfd` for SCRFD, `mediapipe` when you want to use MediaPipe, or `yolo-pose` to skip face detection and derive head boxes from the YOLO pose keypoints (nose, eyes, ears). `yolo-pose` is the fastest and worked as well as detected faces in our benchmark. `retinaface` and `mediapipe` run on an enlarged crop around each person's pose-estimated head, which finds small faces in wide shots and is faster than detecting on the whole frame; `scrfd` runs on the whole frame.
 - `Gaze detection backend`
-  - `gazelle` (official GAZELLE pretrained model, DINOv2 ViT-L), `gazelle_dinov3_vitb16` (GAZELLE-DINOv3, DINOv3 ViT-B), `page_vitb` (PaGE, DINOv3 ViT-B), or custom fine-tuned GAZELLE models placed in `~/.EAGLE/custom/gaze/`.
+  - `page_vitb` (PaGE, DINOv3 ViT-B) by default, `gazelle` (official GAZELLE pretrained model, DINOv2 ViT-L), `gazelle_dinov3_vitb16` (GAZELLE-DINOv3, DINOv3 ViT-B), or custom fine-tuned GAZELLE models placed in `~/.EAGLE/custom/gaze/`.
 - `Head pose detection backend`
-  - Estimates the gaze direction of people looking outside the frame. `l2cs` by default (gaze from the face crop), `mobileone` for the previous MobileOne-based model, or `gat` for GaT (ST-WSGE, CVPR 2025), which estimates 3D gaze from the head crop and therefore also works when the face is seen from the side or from behind.
+  - Estimates the gaze direction of people looking outside the frame. `gat` by default: GaT (ST-WSGE, CVPR 2025) estimates 3D gaze from the head crop and therefore also works when the face is seen from the side or from behind. `l2cs` estimates gaze from the face crop, and `mobileone` is the previous MobileOne-based model.
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
   - Separate thresholds for person pose tracking, non-person object tracking, face detection, and gaze in/out interpretation.
 - `Visualization mode`
@@ -188,7 +188,7 @@ Output directory behavior:
 - `Gaze label smoothing (seconds, 0=disabled)`
   - Videos only. Each frame's gaze target in `annotation.csv` is replaced by the most frequent target in a centered window of this length (default 0.3 s), which removes brief flickers. Gaze points and heatmaps themselves are not smoothed.
 - `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
-  - For videos only. Each stage runs at the selected target FPS and then writes its own intermediate output.
+  - For videos only. Each stage runs at the selected target FPS and then writes its own intermediate output. Every stage defaults to 15 FPS (or the video FPS if it is lower), which gave the same agreement as processing every frame in our benchmark.
 
 Important:
 
@@ -229,7 +229,8 @@ We compared configurations on 12 sessions of the [Chiba Three-party Conversation
 - Use `cuda:*` on NVIDIA GPUs, or `mps` on Apple Silicon when available.
 - Lower stage FPS values, especially for stages other than gaze, to reduce repeated detection work.
 - `yolo-pose` skips face detection altogether, and `scrfd` is the fastest face detector.
-- The gaze model runs on several frames at once, in float16 on CUDA and Apple MPS (`gaze_half_precision=True` by default); on CUDA this is about 3x faster than frame by frame in float32 with the same results.
+- The gaze model runs on several frames at once, in float16 on CUDA (`gaze_half_precision=True` by default); on CUDA this is about 3x faster than frame by frame in float32 with the same results. On Apple MPS it stays in float32: on an M3, float16 moved the heatmap peak by up to 50 px on the 64x64 heatmap (GAZELLE-DINOv3) and was not faster.
+- On Apple MPS, attention layers use plain matrix multiplications instead of PyTorch's SDPA kernel, which made the gaze models 25-30% faster on an M3 with the same results.
 - Person and object tracking run YOLO on 16 frames at a time, in float16 on CUDA; on our benchmark this halved the tracking time with the same results.
 - If you only need the CSV and ELAN outputs, turn off `Render visualization videos` (`render_video=False`) to skip drawing and encoding the annotated videos.
 
@@ -410,8 +411,8 @@ eagle.preprocess(
     person_detection_backend="yolo26x-pose",
     object_detection_backend="yolo26x",
     face_detection_backend="retinaface",
-    gaze_detection_backend="gazelle",
-    head_pose_detection_backend="l2cs",
+    gaze_detection_backend="page_vitb",
+    head_pose_detection_backend="gat",
     device="cpu",
     visualization_mode="both",
     person_part_min_conf=0.0,

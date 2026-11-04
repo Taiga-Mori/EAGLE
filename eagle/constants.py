@@ -154,9 +154,11 @@ YOLO_OBJECT_MODELS = {
 OBJECT_DETECTION_BACKENDS = YOLO_OBJECT_MODELS
 DEFAULT_OBJECT_DETECTION_BACKEND = "yolo26x"
 GAZE_DETECTION_BACKENDS = ("gazelle", "gazelle_dinov3_vitb16", "page_vitb")
-DEFAULT_GAZE_DETECTION_BACKEND = "gazelle"
+DEFAULT_GAZE_DETECTION_BACKEND = "page_vitb"
 HEAD_POSE_DETECTION_BACKENDS = {"l2cs", "mobileone", "gat"}
-DEFAULT_HEAD_POSE_DETECTION_BACKEND = "l2cs"
+DEFAULT_HEAD_POSE_DETECTION_BACKEND = "gat"
+# Default sampling rate of each pipeline stage, capped at the video FPS.
+DEFAULT_TARGET_FPS = 15.0
 
 
 def discover_custom_gaze_models(custom_models_dir) -> dict[str, str]:

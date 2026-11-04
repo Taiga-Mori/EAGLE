@@ -20,8 +20,8 @@ EAGLE 是一个基于 Streamlit 的视线标注辅助工具，用于图像和视
 - 使用 YOLO pose 进行人物跟踪
 - 使用 YOLO detection 进行非人物对象跟踪
 - 默认使用 RetinaFace 进行人脸检测，也可以选择 SCRFD 或 MediaPipe
-- 使用 GAZELLE、GAZELLE-DINOv3 或 PaGE 进行视线热力图估计
-- 默认使用 L2CS-Net 进行画面外方向估计，也可以选择 MobileOne gaze
+- 默认使用 PaGE 进行视线热力图估计，也可以选择 GAZELLE 或 GAZELLE-DINOv3
+- 默认使用 GaT 进行画面外方向估计，也可以选择 L2CS-Net 或 MobileOne gaze
 - CSV 导出以及带标注的图像/视频导出
 
 EAGLE 是标注辅助工具，并不保证输出就是真实标注。在用于研究、分析、报告或决策之前，必须检查并验证所有输出。
@@ -98,13 +98,13 @@ venv/bin/streamlit run app.py
 - 按需使用的 YOLO object 权重：`yolo26n.pt`、`yolo26s.pt`、`yolo26m.pt`、`yolo26l.pt` 或 `yolo26x.pt`
 - `yolo26x-pose.pt`
 - RetinaFace 预训练权重
-- GAZELLE torch.hub 文件
+- 选择 GAZELLE 或自定义 GAZELLE 模型时：GAZELLE torch.hub 文件
 - 选择 SCRFD 时：SCRFD 权重（`scrfd_10g_bnkps.onnx`）
 - 选择 GAZELLE-DINOv3 时：权重（`gazelle_dinov3_vitb16.pt`）和 DINOv3 模型代码
-- 选择 PaGE 时：来自 Hugging Face（`Octopus1/page-vitb`）的权重和模型代码
-- `L2CSNet_gaze360.pkl`
-- `mobileone_s0.pt`
-- 选择 GaT 时：权重（`gat_stwsge_gaze360_gf.ckpt`）和 Omnivore 的 Swin3D 代码
+- PaGE：来自 Hugging Face（`Octopus1/page-vitb`）的权重和模型代码
+- 选择 L2CS-Net 时：`L2CSNet_gaze360.pkl`
+- 选择 MobileOne 时：`mobileone_s0.pt`
+- GaT：权重（`gat_stwsge_gaze360_gf.ckpt`）和 Omnivore 的 Swin3D 代码
 
 如果首次加载失败，请检查：
 
@@ -153,9 +153,9 @@ venv/bin/streamlit run app.py
 - `Face detection backend`
   - 默认是 `retinaface`；使用 SCRFD 时选择 `scrfd`，使用 MediaPipe 时选择 `mediapipe`。选择 `yolo-pose` 时不进行人脸检测，而是由 YOLO 姿态关键点（鼻子、眼睛、耳朵）生成头部框；它速度最快，在基准测试中与检测到的人脸效果相当。`retinaface` 和 `mediapipe` 会在根据姿态估计出的每个人头部周围放大裁剪的图像上检测人脸，能检测广角画面中的小脸，并且比在整帧上检测更快；`scrfd` 在整帧上检测。
 - `Gaze detection backend`
-  - `gazelle`（官方 GAZELLE 预训练模型，DINOv2 ViT-L）、`gazelle_dinov3_vitb16`（GAZELLE-DINOv3，DINOv3 ViT-B）、`page_vitb`（PaGE，DINOv3 ViT-B），或放在 `~/.EAGLE/custom/gaze/` 中的微调 GAZELLE 模型。
+  - 默认是 `page_vitb`（PaGE，DINOv3 ViT-B）；也可以选择 `gazelle`（官方 GAZELLE 预训练模型，DINOv2 ViT-L）、`gazelle_dinov3_vitb16`（GAZELLE-DINOv3，DINOv3 ViT-B），或放在 `~/.EAGLE/custom/gaze/` 中的微调 GAZELLE 模型。
 - `Head pose detection backend`
-  - 估计注视画面外的人的视线方向。默认是 `l2cs`（从人脸图像估计视线）；使用之前的 MobileOne 模型时选择 `mobileone`；使用 GaT（ST-WSGE，CVPR 2025）时选择 `gat`。GaT 从头部图像估计三维视线，因此即使人脸是侧面或背面也能估计。
+  - 估计注视画面外的人的视线方向。默认是 `gat`（GaT，ST-WSGE，CVPR 2025）。GaT 从头部图像估计三维视线，因此即使人脸是侧面或背面也能估计。从人脸图像估计视线时选择 `l2cs`；使用之前的 MobileOne 模型时选择 `mobileone`。
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
   - 分别用于人物姿态跟踪、非人物对象跟踪、人脸检测和视线 in/out 解释的阈值。
 - `Visualization mode`
@@ -187,7 +187,7 @@ venv/bin/streamlit run app.py
 - `Gaze label smoothing (seconds, 0=disabled)`
   - 仅限视频。将 `annotation.csv` 中每一帧的注视目标替换为以该帧为中心、此长度（默认 0.3 秒）窗口内出现最多的注视目标，以去除短暂的抖动。视线点和热力图本身不做平滑。
 - `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
-  - 仅视频。每个阶段按所选 target FPS 运行，并写出自己的中间输出。
+  - 仅视频。每个阶段按所选 target FPS 运行，并写出自己的中间输出。所有阶段默认 15 FPS（若视频 FPS 更低则使用视频 FPS）；在我们的基准测试中，这与逐帧处理的一致性相同。
 
 重要：
 
@@ -227,7 +227,8 @@ UI 暴露了 [`config/botsort.yaml`](config/botsort.yaml) 中的这些 tracker �
 - 在 NVIDIA GPU 上使用 `cuda:*`；在 Apple Silicon 上如可用则使用 `mps`。
 - 降低各阶段 FPS 可以减少重复检测工作，尤其是 gaze 以外的阶段。
 - `yolo-pose` 完全跳过人脸检测；在人脸检测器中 `scrfd` 最快。
-- 视线模型会一次处理多帧，在 CUDA 和 Apple MPS 上使用 float16（默认 `gaze_half_precision=True`）；在 CUDA 上比逐帧 float32 推理快约 3 倍，结果相同。
+- 视线模型会一次处理多帧，在 CUDA 上使用 float16（默认 `gaze_half_precision=True`）；在 CUDA 上比逐帧 float32 推理快约 3 倍，结果相同。在 Apple MPS 上保持 float32：在 M3 上，float16 会使 64x64 热力图的峰值最多偏移 50 px（GAZELLE-DINOv3），而且并不更快。
+- 在 Apple MPS 上，attention 层使用普通矩阵乘法而不是 PyTorch 的 SDPA 内核；在 M3 上视线模型快了 25-30%，结果相同。
 - 人物和物体跟踪会让 YOLO 一次处理 16 帧，在 CUDA 上使用 float16；在我们的基准测试中，跟踪时间减半且结果相同。
 - 如果只需要 CSV 和 ELAN 输出，可以关闭 `Render visualization videos`（`render_video=False`），跳过注释视频的绘制和编码。
 
@@ -347,8 +348,8 @@ eagle.preprocess(
     person_detection_backend="yolo26x-pose",
     object_detection_backend="yolo26x",
     face_detection_backend="retinaface",
-    gaze_detection_backend="gazelle",
-    head_pose_detection_backend="l2cs",
+    gaze_detection_backend="page_vitb",
+    head_pose_detection_backend="gat",
     device="cpu",
     visualization_mode="both",
     person_part_min_conf=0.0,

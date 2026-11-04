@@ -169,7 +169,7 @@ class AnnotationExporter:
             raise RuntimeError("Run det_faces() and det_gaze() before make_video().")
 
         merge_command = [
-            str(self.paths.ffmpeg_path),
+            self._resolve_ffmpeg_executable(),
             "-y",
             "-i",
             str(silent_video),
@@ -567,7 +567,7 @@ class AnnotationExporter:
         return encoder in self._available_ffmpeg_encoders
 
     def _detect_ffmpeg_encoders(self) -> set[str]:
-        command = [str(self.paths.ffmpeg_path), "-hide_banner", "-encoders"]
+        command = [self._resolve_ffmpeg_executable(), "-hide_banner", "-encoders"]
         try:
             result = subprocess.run(command, check=True, capture_output=True, text=True)
         except Exception:

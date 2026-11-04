@@ -46,10 +46,11 @@ PAGE_MODELS = {
 
 
 def _half_precision_context(device: str, enabled: bool):
-    # float16 autocast runs the ViT matmuls on CUDA tensor cores, and in half precision on Apple GPUs
-    # (MPS, untested so far). Other devices, or PyTorch builds without MPS autocast, stay in float32.
+    # float16 autocast runs the ViT matmuls on CUDA tensor cores. MPS stays in float32: on an M3 with
+    # PyTorch 2.10, float16 autocast moved the heatmap peak by about 6 px (GAZELLE) and 50 px
+    # (GAZELLE-DINOv3) on a 64x64 map, and made PaGE slower. Other devices also stay in float32.
     device_type = device.split(":")[0]
-    if enabled and device_type in ("cuda", "mps") and torch.amp.is_autocast_available(device_type):
+    if enabled and device_type == "cuda" and torch.amp.is_autocast_available(device_type):
         return torch.autocast(device_type=device_type, dtype=torch.float16)
     return nullcontext()
 

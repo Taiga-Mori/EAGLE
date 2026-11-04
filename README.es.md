@@ -20,8 +20,8 @@ EAGLE es una herramienta de apoyo para anotación de mirada, basada en Streamlit
 - Seguimiento de personas con YOLO pose
 - Seguimiento de objetos no humanos con YOLO detection
 - Detección de rostros con RetinaFace por defecto, con SCRFD y MediaPipe también disponibles
-- Estimación de mapas de calor de mirada con GAZELLE, GAZELLE-DINOv3 o PaGE
-- Estimación de dirección fuera de pantalla con L2CS-Net por defecto, con MobileOne también disponible
+- Estimación de mapas de calor de mirada con PaGE por defecto, con GAZELLE y GAZELLE-DINOv3 también disponibles
+- Estimación de dirección fuera de pantalla con GaT por defecto, con L2CS-Net y MobileOne también disponibles
 - Exportación CSV y exportación de imágenes/videos anotados
 
 EAGLE es una herramienta de asistencia para anotación, no una fuente garantizada de verdad terreno. Debes revisar y validar todos los resultados antes de usarlos en investigación, análisis, informes o toma de decisiones.
@@ -98,13 +98,13 @@ En el primer uso, EAGLE puede descargar y guardar en caché:
 - Pesos YOLO object según sea necesario: `yolo26n.pt`, `yolo26s.pt`, `yolo26m.pt`, `yolo26l.pt` o `yolo26x.pt`
 - `yolo26x-pose.pt`
 - Pesos preentrenados de RetinaFace
-- Archivos torch.hub de GAZELLE
+- Archivos torch.hub de GAZELLE si se selecciona GAZELLE o un modelo GAZELLE personalizado
 - Pesos de SCRFD (`scrfd_10g_bnkps.onnx`) si se selecciona SCRFD
 - Pesos de GAZELLE-DINOv3 (`gazelle_dinov3_vitb16.pt`) y el código del modelo DINOv3 si se selecciona GAZELLE-DINOv3
-- Pesos y código del modelo PaGE desde Hugging Face (`Octopus1/page-vitb`) si se selecciona PaGE
-- `L2CSNet_gaze360.pkl`
-- `mobileone_s0.pt`
-- Pesos de GaT (`gat_stwsge_gaze360_gf.ckpt`) y el código Swin3D de Omnivore si se selecciona GaT
+- Pesos y código del modelo PaGE desde Hugging Face (`Octopus1/page-vitb`)
+- `L2CSNet_gaze360.pkl` si se selecciona L2CS-Net
+- `mobileone_s0.pt` si se selecciona MobileOne
+- Pesos de GaT (`gat_stwsge_gaze360_gf.ckpt`) y el código Swin3D de Omnivore
 
 Si falla la carga inicial, comprueba:
 
@@ -153,9 +153,9 @@ Comportamiento del directorio de salida:
 - `Face detection backend`
   - `retinaface` por defecto, `scrfd` para SCRFD, `mediapipe` si quieres usar MediaPipe, o `yolo-pose` para omitir la detección de rostros y obtener las cajas de cabeza a partir de los puntos clave de pose de YOLO (nariz, ojos, orejas). `yolo-pose` es la opción más rápida y funcionó igual de bien que los rostros detectados en nuestra evaluación. `retinaface` y `mediapipe` buscan rostros en un recorte ampliado alrededor de la cabeza de cada persona, estimada a partir de la pose; así detectan rostros pequeños en planos amplios y son más rápidos que sobre el fotograma completo. `scrfd` trabaja sobre el fotograma completo.
 - `Gaze detection backend`
-  - `gazelle` (modelo preentrenado oficial de GAZELLE, DINOv2 ViT-L), `gazelle_dinov3_vitb16` (GAZELLE-DINOv3, DINOv3 ViT-B), `page_vitb` (PaGE, DINOv3 ViT-B) o modelos GAZELLE ajustados colocados en `~/.EAGLE/custom/gaze/`.
+  - `page_vitb` (PaGE, DINOv3 ViT-B) por defecto, `gazelle` (modelo preentrenado oficial de GAZELLE, DINOv2 ViT-L), `gazelle_dinov3_vitb16` (GAZELLE-DINOv3, DINOv3 ViT-B) o modelos GAZELLE ajustados colocados en `~/.EAGLE/custom/gaze/`.
 - `Head pose detection backend`
-  - Estima la dirección de la mirada de las personas que miran fuera del encuadre. `l2cs` por defecto (mirada a partir del recorte del rostro), `mobileone` para el modelo anterior basado en MobileOne, o `gat` para GaT (ST-WSGE, CVPR 2025), que estima la mirada 3D a partir del recorte de la cabeza y, por tanto, también funciona cuando el rostro se ve de lado o de espaldas.
+  - Estima la dirección de la mirada de las personas que miran fuera del encuadre. `gat` por defecto: GaT (ST-WSGE, CVPR 2025) estima la mirada 3D a partir del recorte de la cabeza y, por tanto, también funciona cuando el rostro se ve de lado o de espaldas. `l2cs` estima la mirada a partir del recorte del rostro, y `mobileone` es el modelo anterior basado en MobileOne.
 - `Person threshold`, `Object threshold`, `Face threshold`, `Gaze threshold`
   - Umbrales separados para seguimiento de personas con pose, seguimiento de objetos que no son personas, detección de rostros e interpretación gaze in/out.
 - `Visualization mode`
@@ -187,7 +187,7 @@ Comportamiento del directorio de salida:
 - `Gaze label smoothing (seconds, 0=disabled)`
   - Solo para vídeos. El objetivo de mirada de cada fotograma en `annotation.csv` se sustituye por el objetivo más frecuente en una ventana centrada de esta duración (0,3 s por defecto), lo que elimina parpadeos breves. Los puntos de mirada y los mapas de calor no se suavizan.
 - `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
-  - Solo videos. Cada etapa se ejecuta con el target FPS seleccionado y escribe su propia salida intermedia.
+  - Solo videos. Cada etapa se ejecuta con el target FPS seleccionado y escribe su propia salida intermedia. Todas las etapas usan 15 FPS por defecto (o el FPS del vídeo si es menor), lo que dio la misma concordancia que procesar todos los fotogramas en nuestra evaluación.
 
 Importante:
 
@@ -227,7 +227,8 @@ Comparamos configuraciones en 12 sesiones del [Chiba Three-party Conversation Co
 - Usa `cuda:*` en GPU NVIDIA, o `mps` en Apple Silicon cuando esté disponible.
 - Reduce los FPS de cada etapa para disminuir trabajo de detección repetido, especialmente en etapas distintas de gaze.
 - `yolo-pose` omite por completo la detección de rostros, y `scrfd` es el detector de rostros más rápido.
-- El modelo de mirada procesa varios fotogramas a la vez, en float16 en CUDA y en Apple MPS (`gaze_half_precision=True` por defecto); en CUDA es unas 3 veces más rápido que fotograma a fotograma en float32 y con los mismos resultados.
+- El modelo de mirada procesa varios fotogramas a la vez, en float16 en CUDA (`gaze_half_precision=True` por defecto); en CUDA es unas 3 veces más rápido que fotograma a fotograma en float32 y con los mismos resultados. En Apple MPS se mantiene en float32: en un M3, float16 desplazó el pico del mapa de calor de 64x64 hasta 50 px (GAZELLE-DINOv3) y no fue más rápido.
+- En Apple MPS, las capas de atención usan multiplicaciones de matrices simples en lugar del kernel SDPA de PyTorch, lo que hizo los modelos de mirada un 25-30 % más rápidos en un M3 con los mismos resultados.
 - El seguimiento de personas y objetos ejecuta YOLO sobre 16 fotogramas a la vez, en float16 en CUDA; en nuestra evaluación redujo a la mitad el tiempo de seguimiento con los mismos resultados.
 - Si solo necesitas las salidas CSV y ELAN, desactiva `Render visualization videos` (`render_video=False`) para omitir el dibujo y la codificación de los vídeos anotados.
 
@@ -347,8 +348,8 @@ eagle.preprocess(
     person_detection_backend="yolo26x-pose",
     object_detection_backend="yolo26x",
     face_detection_backend="retinaface",
-    gaze_detection_backend="gazelle",
-    head_pose_detection_backend="l2cs",
+    gaze_detection_backend="page_vitb",
+    head_pose_detection_backend="gat",
     device="cpu",
     visualization_mode="both",
     person_part_min_conf=0.0,

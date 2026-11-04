@@ -65,6 +65,55 @@ L2CS_GAZE_URL = (
 )
 
 
+def _install_mps_attention() -> None:
+    """Route scaled_dot_product_attention on MPS tensors through plain matmul + softmax.
+
+    On an M3 with PyTorch 2.10, the MPS SDPA kernel is about 2.5x slower than the same computation
+    written out with matmuls, which makes the gaze models 25-30% slower end to end. It also reuses the
+    scale of its first call for later calls with the same shapes, ignoring their `scale` argument.
+    The models look F.scaled_dot_product_attention up at call time, so replacing the function covers
+    them. Only float32 inputs are routed here: in float16 the unfused logits overflow to NaN in the
+    DINOv3 and PaGE backbones. Other devices, dropout and grouped-query attention keep the original.
+    """
+    original = F.scaled_dot_product_attention
+    if getattr(original, "_eagle_mps_attention", False):
+        return
+
+    def scaled_dot_product_attention(
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        attn_mask: torch.Tensor | None = None,
+        dropout_p: float = 0.0,
+        is_causal: bool = False,
+        scale: float | None = None,
+        **kwargs,
+    ) -> torch.Tensor:
+        if (
+            query.device.type != "mps"
+            or query.dtype != torch.float32
+            or dropout_p > 0.0
+            or kwargs.get("enable_gqa", False)
+        ):
+            return original(
+                query, key, value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal, scale=scale, **kwargs
+            )
+        scale_factor = query.size(-1) ** -0.5 if scale is None else scale
+        attn = (query * scale_factor) @ key.transpose(-2, -1)
+        if is_causal:
+            causal_mask = torch.ones(attn.shape[-2:], device=attn.device, dtype=torch.bool).triu(1)
+            attn = attn.masked_fill(causal_mask, float("-inf"))
+        if attn_mask is not None:
+            if attn_mask.dtype == torch.bool:
+                attn = attn.masked_fill(~attn_mask, float("-inf"))
+            else:
+                attn = attn + attn_mask
+        return attn.softmax(dim=-1) @ value
+
+    scaled_dot_product_attention._eagle_mps_attention = True
+    F.scaled_dot_product_attention = scaled_dot_product_attention
+
+
 @contextmanager
 def _suppress_native_stderr():
     """Temporarily silence native libraries that write directly to stderr."""
@@ -120,6 +169,7 @@ class ModelManager:
         if ULTRALYTICS_LOGGER is not None:
             ULTRALYTICS_LOGGER.setLevel(logging.ERROR)
         self._ensure_torch_attention_compat()
+        _install_mps_attention()
         try:
             import certifi
 
