@@ -90,9 +90,11 @@ class ConfigManager:
         person_track_postprocess: bool,
         person_duplicate_iou: float,
         person_stitch_max_gap_sec: float,
+        person_min_duration_ratio: float,
         object_smoothing_window: int,
         face_smoothing_window: int,
         gaze_label_smoothing_sec: float,
+        gaze_half_precision: bool,
         selected_object_classes: list[str] | None,
         reuse_cached_persons: bool,
         reuse_cached_objects: bool,
@@ -134,6 +136,8 @@ class ConfigManager:
             raise ValueError("person_duplicate_iou must be in (0, 1]")
         if person_stitch_max_gap_sec < 0:
             raise ValueError("person_stitch_max_gap_sec must be non-negative")
+        if not 0.0 <= person_min_duration_ratio <= 1.0:
+            raise ValueError("person_min_duration_ratio must be between 0 and 1")
         if object_smoothing_window < 1:
             raise ValueError("object_smoothing_window must be at least 1")
         if face_smoothing_window < 1:
@@ -174,9 +178,11 @@ class ConfigManager:
             person_track_postprocess=bool(person_track_postprocess),
             person_duplicate_iou=float(person_duplicate_iou),
             person_stitch_max_gap_sec=float(person_stitch_max_gap_sec),
+            person_min_duration_ratio=float(person_min_duration_ratio),
             object_smoothing_window=int(object_smoothing_window),
             face_smoothing_window=int(face_smoothing_window),
             gaze_label_smoothing_sec=float(gaze_label_smoothing_sec),
+            gaze_half_precision=bool(gaze_half_precision),
             selected_object_classes=normalized_selected_classes,
             reuse_cached_persons=bool(reuse_cached_persons),
             reuse_cached_objects=bool(reuse_cached_objects),

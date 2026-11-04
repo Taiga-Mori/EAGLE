@@ -151,7 +151,7 @@ Comportamiento del directorio de salida:
 - `Object detection backend`
   - Selecciona el backend YOLO26 detection (`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l` o `yolo26x`). Los pesos descargados se conservan en `~/.EAGLE/` para reutilizarlos.
 - `Face detection backend`
-  - `retinaface` por defecto, `scrfd` para SCRFD, `mediapipe` si quieres usar MediaPipe, o `yolo-pose` para omitir la detección de rostros y obtener las cajas de cabeza a partir de los puntos clave de pose de YOLO (nariz, ojos, orejas). `yolo-pose` es la opción más rápida y funcionó igual de bien que los rostros detectados en nuestra evaluación.
+  - `retinaface` por defecto, `scrfd` para SCRFD, `mediapipe` si quieres usar MediaPipe, o `yolo-pose` para omitir la detección de rostros y obtener las cajas de cabeza a partir de los puntos clave de pose de YOLO (nariz, ojos, orejas). `yolo-pose` es la opción más rápida y funcionó igual de bien que los rostros detectados en nuestra evaluación. `retinaface` y `mediapipe` buscan rostros en un recorte ampliado alrededor de la cabeza de cada persona, estimada a partir de la pose; así detectan rostros pequeños en planos amplios y son más rápidos que sobre el fotograma completo. `scrfd` trabaja sobre el fotograma completo.
 - `Gaze detection backend`
   - `gazelle` (modelo preentrenado oficial de GAZELLE, DINOv2 ViT-L), `gazelle_dinov3_vitb16` (GAZELLE-DINOv3, DINOv3 ViT-B), `page_vitb` (PaGE, DINOv3 ViT-B) o modelos GAZELLE ajustados colocados en `~/.EAGLE/custom/gaze/`.
 - `Head pose detection backend`
@@ -178,6 +178,8 @@ Comportamiento del directorio de salida:
   - Ventana de suavizado para cajas de personas.
 - `Merge duplicate and switched person tracks`, `Duplicate track IoU`, `ID switch max gap (seconds)`
   - Solo para vídeos, activado por defecto. Las pistas que enmarcan a la misma persona (IoU de al menos 0,6, o una caja dentro de la otra con la misma cabeza, en al menos el 80 % de sus fotogramas comunes) se fusionan en la más larga, y una pista que empieza a menos de 3 s del final de otra, en el mismo lugar y con un tamaño similar, se une como su continuación (cambio de ID). Los huecos se interpolan. Las pistas sin procesar se conservan en `persons_raw.csv`, y al cambiar estos ajustes solo se vuelve a ejecutar el posprocesado.
+- `Min person duration for gaze estimation (fraction of video)`
+  - Solo para vídeos, 0,5 por defecto. Tras el posprocesado, las pistas de personas visibles en menos de esta fracción del vídeo (transeúntes, fragmentos sobrantes) se eliminan de `persons.csv`: no se estima su mirada ni son objetivos de mirada. Usa 0 para conservar a todos, por ejemplo si hay personas que entran o salen durante el vídeo.
 - `Object smoothing window`
   - Ventana de suavizado para cajas de objetos seguidos.
 - `Face smoothing window`
@@ -224,7 +226,8 @@ Comparamos configuraciones en 12 sesiones del [Chiba Three-party Conversation Co
 ## Consejos de velocidad
 - Usa `cuda:*` en GPU NVIDIA, o `mps` en Apple Silicon cuando esté disponible.
 - Reduce los FPS de cada etapa para disminuir trabajo de detección repetido, especialmente en etapas distintas de gaze.
-- Si los rostros son mayoritariamente frontales, prueba `mediapipe` como face detection backend.
+- `yolo-pose` omite por completo la detección de rostros, y `scrfd` es el detector de rostros más rápido.
+- En CUDA, el modelo de mirada procesa varios fotogramas a la vez en float16 (`gaze_half_precision=True` por defecto), unas 3 veces más rápido que fotograma a fotograma en float32 y con los mismos resultados.
 
 ## Archivos de salida
 Las salidas actuales pueden incluir:

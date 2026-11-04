@@ -31,6 +31,7 @@ class ObjectTracker:
         smoothing_window: int,
         max_switch_gap: int,
         track_postprocess: dict[str, float] | None,
+        min_duration_ratio: float = 0.0,
         progress_bar=None,
     ) -> pd.DataFrame:
         raw_rows = self._run_person_detection(context, device, det_thresh, progress_bar)
@@ -59,16 +60,22 @@ class ObjectTracker:
                 "max_switch_gap": int(max_switch_gap),
             },
         )
-        return self.postprocess_persons(context, detections, track_postprocess, progress_bar)
+        return self.postprocess_persons(context, detections, track_postprocess, min_duration_ratio, progress_bar)
 
     def postprocess_persons(
         self,
         context: MediaContext,
         raw_tracks: pd.DataFrame,
         track_postprocess: dict[str, float] | None,
+        min_duration_ratio: float = 0.0,
         progress_bar=None,
     ) -> pd.DataFrame:
-        """Write persons.csv from the unprocessed tracks (kept as persons_raw.csv) and record the settings."""
+        """Write persons.csv from the unprocessed tracks (kept as persons_raw.csv) and record the settings.
+
+        After merging, person tracks seen in under min_duration_ratio of the video (passers-by, leftover
+        fragments) are dropped from persons.csv, so later stages neither estimate their gaze nor use them
+        as gaze targets.
+        """
         if not context.persons_raw_path.exists():
             raw_tracks.to_csv(context.persons_raw_path, index=False)
         tracks, merges = raw_tracks, []
@@ -86,6 +93,17 @@ class ObjectTracker:
                 f"{sum(m['reason'] == 'id_switch' for m in merges)} ID switches merged)",
                 flush=True,
             )
+        dropped: list[str] = []
+        if min_duration_ratio > 0 and context.media_type == "video" and not tracks.empty:
+            frames_per_track = tracks.groupby(tracks["track_id"].astype(str))["frame_idx"].nunique()
+            dropped = sorted(frames_per_track[frames_per_track < min_duration_ratio * context.total_frames].index)
+            if dropped:
+                tracks = tracks[~tracks["track_id"].astype(str).isin(dropped)].reset_index(drop=True)
+                print(
+                    f"Dropped {len(dropped)} person track(s) seen in under {min_duration_ratio:.0%} of the video: "
+                    f"{', '.join(dropped)}",
+                    flush=True,
+                )
         self._update_progress(progress_bar, 0, 1, "Saving persons.csv...")
         tracks.to_csv(context.persons_path, index=False)
         self._update_progress(progress_bar, 1, 1, "Saving persons.csv...")
@@ -93,6 +111,8 @@ class ObjectTracker:
             meta = json.load(file)
         meta["track_postprocess"] = track_postprocess
         meta["track_merges"] = merges
+        meta["min_duration_ratio"] = float(min_duration_ratio)
+        meta["dropped_short_tracks"] = dropped
         with context.persons_meta_path.open("w", encoding="utf-8") as file:
             json.dump(meta, file, ensure_ascii=False, indent=2)
         return tracks

@@ -11,7 +11,14 @@ from PIL import Image
 
 from .annotate import FrameAnnotator
 from .body_parts import build_person_part_shapes, resolve_person_part_label
-from .constants import FACE_COLUMNS, GAZE_COLUMNS
+from .constants import (
+    FACE_COLUMNS,
+    FACE_CROP_HEAD_SCALE,
+    FACE_CROP_SIZE,
+    GAZE_BATCH_SIZE,
+    GAZE_COLUMNS,
+    HEAD_CROP_FACE_BACKENDS,
+)
 from .exporters import AnnotationExporter, PipedVideoWriter
 from .gat_gaze import gaze_vector_to_yaw_pitch_deg, head_box_from_face_box, preprocess_head_crop
 from .metacache import load_meta_snapshot, meta_snapshot_matches
@@ -669,6 +676,10 @@ class FaceGazeEstimator:
         expected_steps = max(1, len(context.face_frame_idx))
         update_interval = max(1, expected_steps // 200)
         face_step = 0
+        objects_by_frame = {
+            int(frame_idx): group.to_dict(orient="records")
+            for frame_idx, group in object_df.groupby("frame_idx", sort=False)
+        }
         try:
             for frame_idx in range(context.total_frames):
                 ret, frame = capture.read()
@@ -677,10 +688,9 @@ class FaceGazeEstimator:
                 if frame_idx not in face_frame_set:
                     continue
 
-                frame_objects = object_df[object_df["frame_idx"] == frame_idx].to_dict(orient="records")
                 face_map = self.detect_faces_for_frame(
                     frame,
-                    frame_objects,
+                    objects_by_frame.get(frame_idx, []),
                     det_thresh,
                     face_detection_backend,
                     face_fallback_min_size_scale,
@@ -708,6 +718,21 @@ class FaceGazeEstimator:
         gaze_frame_set = set(context.gaze_frame_idx)
         expected_steps = max(1, len(context.gaze_frame_idx))
         gaze_step = 0
+        batch: list[tuple[int, np.ndarray, dict[int, FaceDetection]]] = []
+
+        def flush() -> None:
+            nonlocal gaze_step
+            gaze_maps = self.detect_gazes_batch(
+                [frame for _, frame, _ in batch],
+                [face_map for _, _, face_map in batch],
+                device,
+                gaze_point_method,
+            )
+            for (frame_idx, _, _), gaze_map in zip(batch, gaze_maps):
+                sparse_gaze_by_frame[frame_idx] = gaze_map
+            gaze_step += len(batch)
+            batch.clear()
+            self._update_progress(progress_bar, gaze_step, expected_steps, "Estimating gaze...")
 
         try:
             for frame_idx in range(context.total_frames):
@@ -716,15 +741,11 @@ class FaceGazeEstimator:
                     break
                 if frame_idx not in gaze_frame_set:
                     continue
-
-                sparse_gaze_by_frame[frame_idx] = self.detect_gazes(
-                    frame,
-                    face_maps_by_frame.get(frame_idx, {}),
-                    device,
-                    gaze_point_method,
-                )
-                gaze_step += 1
-                self._update_progress(progress_bar, gaze_step, expected_steps, "Estimating gaze...")
+                batch.append((frame_idx, frame, face_maps_by_frame.get(frame_idx, {})))
+                if len(batch) == GAZE_BATCH_SIZE:
+                    flush()
+            if batch:
+                flush()
         finally:
             capture.release()
 
@@ -760,8 +781,8 @@ class FaceGazeEstimator:
         heatmap_track_ids: list[str] = []
         if heatmap_enabled:
             shutil.rmtree(context.heatmap_dir, ignore_errors=True)
-            person_detections = object_df[object_df["cls"].astype(str) == "person"]
-            heatmap_track_ids = sorted({str(track_id) for track_id in person_detections["track_id"].dropna()})
+            # Only people whose gaze was estimated get a heatmap video.
+            heatmap_track_ids = sorted({str(track_id) for face_map in face_maps_by_frame.values() for track_id in face_map})
         objects_by_frame = {
             int(frame_idx): group.to_dict(orient="records")
             for frame_idx, group in object_df.groupby("frame_idx", sort=False)
@@ -987,6 +1008,8 @@ class FaceGazeEstimator:
         if abs(float(gaze_meta.get("det_thresh", -1.0)) - float(det_thresh)) > 1e-9:
             return None
         if str(gaze_meta.get("gaze_detection_backend", "")) != str(gaze_detection_backend):
+            return None
+        if bool(gaze_meta.get("gaze_half_precision", False)) != self._gaze_half_precision():
             return None
         if str(gaze_meta.get("head_pose_detection_backend", "")) != str(head_pose_detection_backend):
             return None
@@ -1221,6 +1244,7 @@ class FaceGazeEstimator:
                     "gaze_point_method": gaze_point_method,
                     "gaze_detection_backend": gaze_detection_backend,
                     "gaze_cache_version": GAZE_CACHE_VERSION,
+                    "gaze_half_precision": self._gaze_half_precision(),
                     "gaze_stride": int(context.gaze_stride),
                     "head_pose_stride": int(context.head_pose_stride),
                     "det_thresh": float(det_thresh),
@@ -1233,6 +1257,9 @@ class FaceGazeEstimator:
                 ensure_ascii=False,
                 indent=2,
             )
+
+    def _gaze_half_precision(self) -> bool:
+        return bool(getattr(self.models.gaze_model, "half_precision", False))
 
     def _save_faces_meta(
         self,
@@ -1249,6 +1276,7 @@ class FaceGazeEstimator:
                     "face_detection_backend": face_detection_backend,
                     "face_smoothing_window": face_smoothing_window,
                     "face_fallback_min_size_scale": float(face_fallback_min_size_scale),
+                    "face_detection_crop": face_detection_backend in HEAD_CROP_FACE_BACKENDS,
                     "face_stride": int(context.face_stride),
                     "det_thresh": float(det_thresh),
                     "media_path": str(context.media_path.resolve()),
@@ -1497,7 +1525,12 @@ class FaceGazeEstimator:
         if not person_detections:
             return {}
 
-        valid_faces = self._detect_face_candidates(frame, det_thresh, face_detection_backend)
+        if face_detection_backend in HEAD_CROP_FACE_BACKENDS:
+            valid_faces = self._detect_face_candidates_in_head_crops(
+                frame, person_detections, det_thresh, face_detection_backend
+            )
+        else:
+            valid_faces = self._detect_face_candidates(frame, det_thresh, face_detection_backend)
 
         scored_pairs: list[tuple[float, str, dict]] = []
         for detection in person_detections:
@@ -1530,6 +1563,63 @@ class FaceGazeEstimator:
             assigned_face_ids.add(face_id)
         self._add_pose_face_fallbacks(face_map, person_detections, frame, face_fallback_min_size_scale)
         return face_map
+
+    def _detect_face_candidates_in_head_crops(
+        self,
+        frame: np.ndarray,
+        person_detections: list[dict],
+        det_thresh: float,
+        face_detection_backend: str,
+    ) -> list[dict]:
+        """Run the face detector on an enlarged crop around each person's pose-estimated head.
+
+        Faces in wide shots are often only 20-30 px, too small for the detectors; enlarging just the head
+        regions helps there and costs far less than enlarging the whole frame.
+        """
+        if face_detection_backend == "yolo-pose":
+            return []
+        height, width = frame.shape[:2]
+        faces: list[dict] = []
+        for detection in person_detections:
+            crop = self._head_crop(frame, detection)
+            if crop is None:
+                continue
+            image, x0, y0, scale = crop
+            for face in self._detect_face_candidates(image, det_thresh, face_detection_backend):
+                cx1, cy1, cx2, cy2 = (float(value) for value in face["bbox"][:4])
+                x1 = int(round(min(max(x0 + cx1 / scale, 0), width - 1)))
+                y1 = int(round(min(max(y0 + cy1 / scale, 0), height - 1)))
+                x2 = int(round(max(min(x0 + cx2 / scale, width), x1 + 1)))
+                y2 = int(round(max(min(y0 + cy2 / scale, height), y1 + 1)))
+                faces.append({"bbox": [x1, y1, x2, y2], "score": float(face["score"])})
+        return faces
+
+    def _head_crop(self, frame: np.ndarray, detection: dict) -> tuple[np.ndarray, int, int, float] | None:
+        """Return a FACE_CROP_SIZE square around the head, its top-left corner in the frame, and its scale."""
+        height, width = frame.shape[:2]
+        head_box = self._nose_centered_face_bbox(detection, frame, 1.0)
+        if head_box is not None:
+            hx1, hy1, hx2, hy2 = head_box
+            center_x, center_y = (hx1 + hx2) / 2.0, (hy1 + hy2) / 2.0
+            head_size = float(max(hx2 - hx1, hy2 - hy1))
+        else:
+            keypoint_summary = self._face_keypoint_summary(detection, frame)
+            if keypoint_summary is None:
+                return None
+            center_x, center_y = keypoint_summary["center"]
+            head_size = max(16.0, (float(detection["x2"]) - float(detection["x1"])) * 0.15)
+        side = max(int(round(head_size * FACE_CROP_HEAD_SCALE)), 2)
+        x0 = int(round(center_x - side / 2.0))
+        y0 = int(round(center_y - side / 2.0))
+        sx1, sy1 = max(x0, 0), max(y0, 0)
+        sx2, sy2 = min(x0 + side, width), min(y0 + side, height)
+        if sx2 <= sx1 or sy2 <= sy1:
+            return None
+        canvas = np.zeros((side, side, 3), dtype=frame.dtype)
+        canvas[sy1 - y0 : sy2 - y0, sx1 - x0 : sx2 - x0] = frame[sy1:sy2, sx1:sx2]
+        scale = FACE_CROP_SIZE / side
+        interpolation = cv2.INTER_LINEAR if scale >= 1.0 else cv2.INTER_AREA
+        return cv2.resize(canvas, (FACE_CROP_SIZE, FACE_CROP_SIZE), interpolation=interpolation), x0, y0, scale
 
     def _detect_face_candidates(
         self,
@@ -1799,35 +1889,52 @@ class FaceGazeEstimator:
         device: str,
         gaze_point_method: str,
     ) -> dict[int, GazePoint]:
-        if not face_map:
-            return {}
+        return self.detect_gazes_batch([frame], [face_map], device, gaze_point_method)[0]
+
+    def detect_gazes_batch(
+        self,
+        frames: list[np.ndarray],
+        face_maps: list[dict[int, FaceDetection]],
+        device: str,
+        gaze_point_method: str,
+    ) -> list[dict[int, GazePoint]]:
+        """Estimate gaze for several frames in one model call; frames without faces get an empty map."""
+        gaze_maps: list[dict[int, GazePoint]] = [{} for _ in frames]
+        indices = [index for index, face_map in enumerate(face_maps) if face_map]
+        if not indices:
+            return gaze_maps
         assert self.models.gaze_model is not None
 
-        height, width = frame.shape[:2]
-        frame_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        sorted_faces = sorted(face_map.values(), key=lambda face: face.track_id)
-        bboxes = [
-            (face.x1 / width, face.y1 / height, face.x2 / width, face.y2 / height)
-            for face in sorted_faces
-        ]
-
-        heatmaps, inouts = self.models.gaze_model.predict(frame_pil, bboxes, device)
-
-        gaze_map: dict[int, GazePoint] = {}
-        for index, face in enumerate(sorted_faces):
-            heatmap = heatmaps[index].detach().cpu().numpy()
-            heatmap = np.maximum(heatmap, 0)
-            x_gaze, y_gaze = self.point_resolver.resolve(heatmap, width, height, gaze_point_method)
-            gaze_map[face.track_id] = GazePoint(
-                track_id=face.track_id,
-                inout=float(inouts[index]),
-                x_gaze=x_gaze,
-                y_gaze=y_gaze,
-                heatmap=heatmap.astype(np.float32),
-                frame_width=width,
-                frame_height=height,
+        height, width = frames[indices[0]].shape[:2]
+        frames_pil = []
+        faces_per_frame = []
+        bboxes_per_frame = []
+        for index in indices:
+            frames_pil.append(Image.fromarray(cv2.cvtColor(frames[index], cv2.COLOR_BGR2RGB)))
+            sorted_faces = sorted(face_maps[index].values(), key=lambda face: face.track_id)
+            faces_per_frame.append(sorted_faces)
+            bboxes_per_frame.append(
+                [(face.x1 / width, face.y1 / height, face.x2 / width, face.y2 / height) for face in sorted_faces]
             )
-        return gaze_map
+
+        predictions = self.models.gaze_model.predict_batch(frames_pil, bboxes_per_frame, device)
+
+        for index, sorted_faces, (heatmaps, inouts) in zip(indices, faces_per_frame, predictions):
+            heatmaps = heatmaps.detach().cpu().numpy()
+            inouts = inouts.detach().cpu().numpy()
+            for face_index, face in enumerate(sorted_faces):
+                heatmap = np.maximum(heatmaps[face_index], 0)
+                x_gaze, y_gaze = self.point_resolver.resolve(heatmap, width, height, gaze_point_method)
+                gaze_maps[index][face.track_id] = GazePoint(
+                    track_id=face.track_id,
+                    inout=float(inouts[face_index]),
+                    x_gaze=x_gaze,
+                    y_gaze=y_gaze,
+                    heatmap=heatmap.astype(np.float32),
+                    frame_width=width,
+                    frame_height=height,
+                )
+        return gaze_maps
 
     def detect_offscreen_directions(
         self,

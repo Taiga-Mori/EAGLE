@@ -152,7 +152,7 @@ Output directory behavior:
 - `Object detection backend`
   - Selects the YOLO26 detection backend (`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, or `yolo26x`). Downloaded weights are kept in `~/.EAGLE/` for reuse.
 - `Face detection backend`
-  - `retinaface` by default, `scrfd` for SCRFD, `mediapipe` when you want to use MediaPipe, or `yolo-pose` to skip face detection and derive head boxes from the YOLO pose keypoints (nose, eyes, ears). `yolo-pose` is the fastest and worked as well as detected faces in our benchmark.
+  - `retinaface` by default, `scrfd` for SCRFD, `mediapipe` when you want to use MediaPipe, or `yolo-pose` to skip face detection and derive head boxes from the YOLO pose keypoints (nose, eyes, ears). `yolo-pose` is the fastest and worked as well as detected faces in our benchmark. `retinaface` and `mediapipe` run on an enlarged crop around each person's pose-estimated head, which finds small faces in wide shots and is faster than detecting on the whole frame; `scrfd` runs on the whole frame.
 - `Gaze detection backend`
   - `gazelle` (official GAZELLE pretrained model, DINOv2 ViT-L), `gazelle_dinov3_vitb16` (GAZELLE-DINOv3, DINOv3 ViT-B), `page_vitb` (PaGE, DINOv3 ViT-B), or custom fine-tuned GAZELLE models placed in `~/.EAGLE/custom/gaze/`.
 - `Head pose detection backend`
@@ -179,6 +179,8 @@ Output directory behavior:
   - Smoothing window for person boxes.
 - `Merge duplicate and switched person tracks`, `Duplicate track IoU`, `ID switch max gap (seconds)`
   - Videos only, on by default. Tracks that box the same person (IoU of at least 0.6, or one box inside the other with the same head, in at least 80% of their common frames) are merged into the longer one, and a track that starts within 3 s of another ending, at the same place and with a similar size, continues that track (ID switch). Gaps are interpolated. The unprocessed tracks are kept in `persons_raw.csv`, and changing these settings re-runs only the post-processing.
+- `Min person duration for gaze estimation (fraction of video)`
+  - Videos only, 0.5 by default. After the post-processing, person tracks seen in less than this fraction of the video (passers-by, leftover fragments) are dropped from `persons.csv`: they get no gaze estimation and are not gaze targets. Use 0 to keep everyone, for example when people enter or leave during the video.
 - `Object smoothing window`
   - Smoothing window for tracked object boxes.
 - `Face smoothing window`
@@ -226,7 +228,8 @@ We compared configurations on 12 sessions of the [Chiba Three-party Conversation
 ## Speed Tips
 - Use `cuda:*` on NVIDIA GPUs, or `mps` on Apple Silicon when available.
 - Lower stage FPS values, especially for stages other than gaze, to reduce repeated detection work.
-- If faces are mostly frontal, try `mediapipe` for the face detection backend.
+- `yolo-pose` skips face detection altogether, and `scrfd` is the fastest face detector.
+- On CUDA, the gaze model runs on several frames at once in float16 (`gaze_half_precision=True` by default), about 3x faster than frame by frame in float32 with the same results.
 
 ## Output Files
 Current outputs can include:

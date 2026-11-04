@@ -17,6 +17,7 @@ from .constants import (
     DEFAULT_HEAD_POSE_DETECTION_BACKEND,
     DEFAULT_OBJECT_DETECTION_BACKEND,
     DEFAULT_PERSON_DETECTION_BACKEND,
+    HEAD_CROP_FACE_BACKENDS,
 )
 from .exporters import AnnotationExporter
 from .gaze import FaceGazeEstimator
@@ -88,9 +89,11 @@ class EAGLE:
         person_track_postprocess: bool = True,
         person_duplicate_iou: float = 0.6,
         person_stitch_max_gap_sec: float = 3.0,
+        person_min_duration_ratio: float = 0.5,
         object_smoothing_window: int = 5,
         face_smoothing_window: int = 5,
         gaze_label_smoothing_sec: float = 0.3,
+        gaze_half_precision: bool = True,
         selected_object_classes: list[str] | None = None,
         reuse_cached_persons: bool = True,
         reuse_cached_objects: bool = True,
@@ -129,9 +132,11 @@ class EAGLE:
             person_track_postprocess=person_track_postprocess,
             person_duplicate_iou=person_duplicate_iou,
             person_stitch_max_gap_sec=person_stitch_max_gap_sec,
+            person_min_duration_ratio=person_min_duration_ratio,
             object_smoothing_window=object_smoothing_window,
             face_smoothing_window=face_smoothing_window,
             gaze_label_smoothing_sec=gaze_label_smoothing_sec,
+            gaze_half_precision=gaze_half_precision,
             selected_object_classes=selected_object_classes,
             reuse_cached_persons=reuse_cached_persons,
             reuse_cached_objects=reuse_cached_objects,
@@ -147,6 +152,7 @@ class EAGLE:
             self.config.face_detection_backend,
             self.config.gaze_detection_backend,
             self.config.head_pose_detection_backend,
+            self.config.gaze_half_precision,
         )
 
     def update_botsort_yaml(self, updates: dict[str, Any]) -> None:
@@ -175,7 +181,11 @@ class EAGLE:
                     meta = json.load(file)
                 # Caches written before post-processing existed hold unprocessed tracks in persons.csv.
                 legacy_cache = "track_postprocess" not in meta
-                if meta.get("track_postprocess") == track_postprocess:
+                min_duration_ratio = float(config.person_min_duration_ratio)
+                if (
+                    meta.get("track_postprocess") == track_postprocess
+                    and abs(float(meta.get("min_duration_ratio", 0.0)) - min_duration_ratio) < 1e-9
+                ):
                     self._notify_skip(progress_bar, "Skipping person detection: reusing cached persons.csv.")
                     return cached_persons
                 raw_tracks = cached_persons if legacy_cache else None
@@ -186,7 +196,9 @@ class EAGLE:
                         progress_bar,
                         "Skipping person detection: reusing cached person tracks and re-running track post-processing.",
                     )
-                    return self.object_tracker.postprocess_persons(context, raw_tracks, track_postprocess, progress_bar)
+                    return self.object_tracker.postprocess_persons(
+                        context, raw_tracks, track_postprocess, min_duration_ratio, progress_bar
+                    )
         return self.object_tracker.detect_persons(
             context=context,
             device=config.device,
@@ -195,6 +207,7 @@ class EAGLE:
             smoothing_window=config.person_smoothing_window,
             max_switch_gap=config.person_max_switch_gap,
             track_postprocess=track_postprocess,
+            min_duration_ratio=config.person_min_duration_ratio,
             progress_bar=progress_bar,
         )
 
@@ -544,6 +557,8 @@ class EAGLE:
         if abs(float(meta.get("face_fallback_min_size_scale", -1.0)) - float(config.face_fallback_min_size_scale)) > 1e-9:
             return None
         if str(meta.get("face_detection_backend", "")) != str(config.face_detection_backend):
+            return None
+        if bool(meta.get("face_detection_crop", False)) != (config.face_detection_backend in HEAD_CROP_FACE_BACKENDS):
             return None
         if not meta_snapshot_matches(meta.get("persons_meta"), load_meta_snapshot(context.persons_meta_path)):
             return None

@@ -490,6 +490,7 @@ def main() -> None:
             person_track_postprocess = bool(st.session_state.get("person_track_postprocess", True))
             person_duplicate_iou = float(st.session_state.get("person_duplicate_iou", 0.6))
             person_stitch_max_gap_sec = float(st.session_state.get("person_stitch_max_gap_sec", 3.0))
+            person_min_duration_ratio = float(st.session_state.get("person_min_duration_ratio", 0.5))
             object_smoothing_window = int(st.session_state.get("object_smoothing_window", 5))
             face_smoothing_window = int(st.session_state.get("face_smoothing_window", 5))
             gaze_label_smoothing_sec = float(st.session_state.get("gaze_label_smoothing_sec", 0.3))
@@ -568,6 +569,18 @@ def main() -> None:
                             "0 disables ID switch merging.",
                         )
                     )
+                person_min_duration_ratio = float(
+                    st.number_input(
+                        "Min person duration for gaze estimation (fraction of video)",
+                        min_value=0.0,
+                        max_value=1.0,
+                        step=0.05,
+                        value=float(st.session_state.get("person_min_duration_ratio", 0.5)),
+                        help="Videos only. Person tracks seen in less than this fraction of the video (passers-by, "
+                        "leftover fragments) are dropped after tracking: no gaze estimation, and not gaze targets. "
+                        "0 keeps everyone.",
+                    )
+                )
                 person_part_distance_scale = float(
                     st.number_input(
                         "Person part distance scale",
@@ -898,6 +911,7 @@ def main() -> None:
         st.session_state.person_track_postprocess = person_track_postprocess
         st.session_state.person_duplicate_iou = person_duplicate_iou
         st.session_state.person_stitch_max_gap_sec = person_stitch_max_gap_sec
+        st.session_state.person_min_duration_ratio = person_min_duration_ratio
         st.session_state.object_smoothing_window = object_smoothing_window
         st.session_state.face_smoothing_window = face_smoothing_window
         st.session_state.gaze_label_smoothing_sec = gaze_label_smoothing_sec
@@ -974,6 +988,7 @@ def main() -> None:
                 person_track_postprocess=st.session_state.person_track_postprocess,
                 person_duplicate_iou=st.session_state.person_duplicate_iou,
                 person_stitch_max_gap_sec=st.session_state.person_stitch_max_gap_sec,
+                person_min_duration_ratio=st.session_state.person_min_duration_ratio,
                 object_smoothing_window=st.session_state.object_smoothing_window,
                 face_smoothing_window=st.session_state.face_smoothing_window,
                 gaze_label_smoothing_sec=st.session_state.gaze_label_smoothing_sec,

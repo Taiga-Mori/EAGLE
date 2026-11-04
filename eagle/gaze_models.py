@@ -11,6 +11,7 @@ heatmap and one in-frame probability per head:
 import math
 import sys
 import zipfile
+from contextlib import nullcontext
 from pathlib import Path
 
 import numpy as np
@@ -44,22 +45,38 @@ PAGE_MODELS = {
 }
 
 
+def _half_precision_context(device: str, enabled: bool):
+    # float16 autocast is only used on CUDA, where it runs the ViT matmuls on tensor cores.
+    if enabled and device.startswith("cuda"):
+        return torch.autocast(device_type="cuda", dtype=torch.float16)
+    return nullcontext()
+
+
 class TransformGazeModel:
     """Wrap a GAZELLE-style model and its image transform."""
 
     def __init__(self, model: nn.Module, transform) -> None:
         self.model = model
         self.transform = transform
+        self.half_precision = False
 
     def to(self, device: str) -> "TransformGazeModel":
         self.model.to(device)
         return self
 
     def predict(self, frame_pil: Image.Image, bboxes: list[tuple[float, float, float, float]], device: str):
-        img_tensor = self.transform(frame_pil).unsqueeze(0).to(device)
-        with torch.no_grad():
-            output = self.model({"images": img_tensor, "bboxes": [bboxes]})
-        return output["heatmap"][0], output["inout"][0]
+        return self.predict_batch([frame_pil], [bboxes], device)[0]
+
+    def predict_batch(
+        self,
+        frames_pil: list[Image.Image],
+        bboxes_per_frame: list[list[tuple[float, float, float, float]]],
+        device: str,
+    ) -> list[tuple[torch.Tensor, torch.Tensor]]:
+        img_tensor = torch.stack([self.transform(frame_pil) for frame_pil in frames_pil]).to(device)
+        with torch.no_grad(), _half_precision_context(device, self.half_precision):
+            output = self.model({"images": img_tensor, "bboxes": list(bboxes_per_frame)})
+        return [(heatmap.float(), inout.float()) for heatmap, inout in zip(output["heatmap"], output["inout"])]
 
 
 class PaGEGazeModel:
@@ -68,12 +85,38 @@ class PaGEGazeModel:
     def __init__(self, model: nn.Module, processor) -> None:
         self.model = model
         self.processor = processor
+        self.half_precision = False
 
     def to(self, device: str) -> "PaGEGazeModel":
         self.model.to(device)
         return self
 
     def predict(self, frame_pil: Image.Image, bboxes: list[tuple[float, float, float, float]], device: str):
+        return self.predict_batch([frame_pil], [bboxes], device)[0]
+
+    def predict_batch(
+        self,
+        frames_pil: list[Image.Image],
+        bboxes_per_frame: list[list[tuple[float, float, float, float]]],
+        device: str,
+    ) -> list[tuple[torch.Tensor, torch.Tensor]]:
+        scene_images = []
+        head_images = []
+        for frame_pil, bboxes in zip(frames_pil, bboxes_per_frame):
+            inputs = self.processor(frame_pil, head_crops=self._head_crops(frame_pil, bboxes), bboxes=[bboxes])
+            scene_images.append(inputs["images"])
+            head_images.append(inputs["head_images"][0])
+        inputs = {
+            "images": torch.cat(scene_images).to(device),
+            "head_images": [torch.cat(head_images).to(device)],
+            "bboxes": list(bboxes_per_frame),
+        }
+        with torch.inference_mode(), _half_precision_context(device, self.half_precision):
+            output = self.model(inputs)
+        return [(heatmap.float(), inout.float()) for heatmap, inout in zip(output["heatmap"], output["inout"])]
+
+    @staticmethod
+    def _head_crops(frame_pil: Image.Image, bboxes: list[tuple[float, float, float, float]]) -> list[Image.Image]:
         width, height = frame_pil.size
         head_crops = []
         for x1, y1, x2, y2 in bboxes:
@@ -82,15 +125,7 @@ class PaGEGazeModel:
             right = max(min(int(round(x2 * width)), width), left + 1)
             bottom = max(min(int(round(y2 * height)), height), top + 1)
             head_crops.append(frame_pil.crop((left, top, right, bottom)))
-        inputs = self.processor(frame_pil, head_crops=head_crops, bboxes=[bboxes])
-        inputs = {
-            "images": inputs["images"].to(device),
-            "head_images": [head_images.to(device) for head_images in inputs["head_images"]],
-            "bboxes": inputs["bboxes"],
-        }
-        with torch.inference_mode():
-            output = self.model(inputs)
-        return output["heatmap"][0], output["inout"][0]
+        return head_crops
 
 
 def load_page_model(backend: str, cache_dir: Path) -> PaGEGazeModel:

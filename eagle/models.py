@@ -39,6 +39,7 @@ from .gaze_models import (
     load_page_model,
 )
 from .constants import (
+    FACE_CROP_SIZE,
     DEFAULT_FACE_DETECTION_BACKEND,
     DEFAULT_GAZE_DETECTION_BACKEND,
     DEFAULT_HEAD_POSE_DETECTION_BACKEND,
@@ -91,6 +92,7 @@ class ModelManager:
         self.yolo: YOLO | None = None
         self.yolo_pose: YOLO | None = None
         self.retinaface = None
+        self.retinaface_max_size: int | None = None
         self.scrfd: SCRFDFaceDetector | None = None
         self.mediapipe_face_detector = None
         self.mediapipe_face_detector_api: str | None = None
@@ -383,6 +385,7 @@ class ModelManager:
         face_detection_backend: str = DEFAULT_FACE_DETECTION_BACKEND,
         gaze_detection_backend: str = DEFAULT_GAZE_DETECTION_BACKEND,
         head_pose_detection_backend: str = DEFAULT_HEAD_POSE_DETECTION_BACKEND,
+        gaze_half_precision: bool = False,
     ) -> None:
         if device.startswith("cuda:"):
             cuda_device = torch.device(device)
@@ -428,13 +431,18 @@ class ModelManager:
             self.loaded_person_detection_backend = person_detection_backend
         if face_detection_backend == "mediapipe" and self.mediapipe_face_detector is None:
             self._load_mediapipe_face_detector()
-        if face_detection_backend == "retinaface" and (self.retinaface is None or self.loaded_device != device):
+        # RetinaFace pads every input to a max_size square; it only ever sees head crops.
+        retinaface_max_size = FACE_CROP_SIZE
+        if face_detection_backend == "retinaface" and (
+            self.retinaface is None or self.loaded_device != device or self.retinaface_max_size != retinaface_max_size
+        ):
             try:
                 # retinaface re-extracts its zipped weights on every load, so concurrent EAGLE processes can
                 # read a half-written file; loading one process at a time avoids that.
                 self.paths.torch_hub_dir.mkdir(parents=True, exist_ok=True)
                 with FileLock(str(self.paths.torch_hub_dir / "retinaface.lock")):
-                    self.retinaface = get_model("resnet50_2020-07-20", max_size=2048, device=device)
+                    self.retinaface = get_model("resnet50_2020-07-20", max_size=retinaface_max_size, device=device)
+                self.retinaface_max_size = retinaface_max_size
                 self.retinaface.eval()
             except Exception as exc:
                 raise RuntimeError(
@@ -457,6 +465,7 @@ class ModelManager:
             self.gaze_model = None
             self.gaze_model = self._load_gaze_model(gaze_detection_backend, device)
             self.loaded_gaze_detection_backend = gaze_detection_backend
+        self.gaze_model.half_precision = gaze_half_precision
         if head_pose_detection_backend == "mobileone" and (
             self.mobile_gaze is None or self.mobile_gaze_transform is None or self.loaded_device != device
         ):

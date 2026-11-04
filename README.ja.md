@@ -151,7 +151,7 @@ venv/bin/streamlit run app.py
 - `Object detection backend`
   - YOLO26 detection backend（`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, `yolo26x`）を選択します。ダウンロード済みの重みは再利用のため `~/.EAGLE/` に保持されます。
 - `Face detection backend`
-  - デフォルトは `retinaface` です。SCRFD を使う場合は `scrfd`、MediaPipe を使いたい場合は `mediapipe` を選びます。`yolo-pose` を選ぶと顔検出を行わず、YOLO の姿勢キーポイント（鼻・目・耳）から頭部ボックスを作ります。最も高速で、ベンチマークでは検出した顔と同等に機能しました。
+  - デフォルトは `retinaface` です。SCRFD を使う場合は `scrfd`、MediaPipe を使いたい場合は `mediapipe` を選びます。`yolo-pose` を選ぶと顔検出を行わず、YOLO の姿勢キーポイント（鼻・目・耳）から頭部ボックスを作ります。最も高速で、ベンチマークでは検出した顔と同等に機能しました。`retinaface` と `mediapipe` は、姿勢から推定した各人物の頭のまわりを拡大して切り出した画像で顔を検出します。広角映像の小さい顔も検出でき、フレーム全体で検出するより高速です。`scrfd` はフレーム全体で検出します。
 - `Gaze detection backend`
   - `gazelle`（公式の GAZELLE 学習済みモデル、DINOv2 ViT-L）、`gazelle_dinov3_vitb16`（GAZELLE-DINOv3、DINOv3 ViT-B）、`page_vitb`（PaGE、DINOv3 ViT-B）、または `~/.EAGLE/custom/gaze/` に置いたファインチューニング済み GAZELLE モデルです。
 - `Head pose detection backend`
@@ -178,6 +178,8 @@ venv/bin/streamlit run app.py
   - 人物 bbox に対する平滑化窓です。
 - `Merge duplicate and switched person tracks`、`Duplicate track IoU`、`ID switch max gap (seconds)`
   - 動画のみ・既定で有効。同じ人物を囲むトラック（共通フレームの80%以上で IoU 0.6 以上、または一方の bbox が他方に含まれ頭部が一致）を長い方に統合し、別のトラックの終了から3秒以内に同じ位置・同程度の大きさで始まるトラックをその続き（ID の切り替わり）として連結します。間は補間します。後処理前のトラックは `persons_raw.csv` に残り、これらの設定を変えた場合は後処理だけを再実行します。
+- `Min person duration for gaze estimation (fraction of video)`
+  - 動画のみ・既定は 0.5。後処理の後、動画全体のこの割合未満しか映っていない人物トラック（通りがかりの人や誤検出の断片）を `persons.csv` から除きます。除いた人物は視線推定を行わず、視線先にもなりません。途中で人が出入りする動画などで全員を残す場合は 0 にしてください。
 - `Object smoothing window`
   - 追跡オブジェクトの bbox に対する平滑化窓です。
 - `Face smoothing window`
@@ -224,7 +226,8 @@ UI では [`config/botsort.yaml`](config/botsort.yaml) の以下の tracker 設�
 ## 高速化のヒント
 - NVIDIA GPU が使える環境では `cuda:*`、Apple Silicon では利用可能なら `mps` を使ってください。
 - 各ステージの FPS を下げると処理量を減らせます。特に視線以外のステージで効果が出やすいです。
-- 顔がほぼ正面向きなら、face detection backend は `mediapipe` も試してください。
+- `yolo-pose` は顔検出そのものを省きます。顔検出器の中では `scrfd` が最も高速です。
+- CUDA では、視線モデルを複数フレームまとめて float16 で推論します（既定で `gaze_half_precision=True`）。1フレームずつ float32 で推論するより約3倍速く、結果は同じです。
 
 ## 出力ファイル
 現在の出力には次が含まれます。

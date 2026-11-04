@@ -64,9 +64,11 @@ class PipelineConfig:
     person_track_postprocess: bool
     person_duplicate_iou: float
     person_stitch_max_gap_sec: float
+    person_min_duration_ratio: float
     object_smoothing_window: int
     face_smoothing_window: int
     gaze_label_smoothing_sec: float
+    gaze_half_precision: bool
     selected_object_classes: list[str]
     reuse_cached_persons: bool
     reuse_cached_objects: bool

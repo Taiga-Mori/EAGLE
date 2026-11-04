@@ -127,6 +127,17 @@ VISUALIZATION_MODES = {"point", "heatmap", "both"}
 GAZE_POINT_METHODS = {"argmax", "center_of_mass", "peak_centroid", "peak_region_centroid", "soft_argmax"}
 FACE_DETECTION_BACKENDS = {"mediapipe", "retinaface", "scrfd", "yolo-pose"}
 DEFAULT_FACE_DETECTION_BACKEND = "retinaface"
+# Head-crop face detection: a square of FACE_CROP_HEAD_SCALE x the pose-estimated head size around each
+# person's head is resized to FACE_CROP_SIZE pixels, so faces reach the detector at about a quarter of that.
+# Profile faces need this much context and resolution to be detected as often as in whole-frame detection.
+FACE_CROP_SIZE = 512
+FACE_CROP_HEAD_SCALE = 4.0
+# Detectors run on head crops. On the Chiba corpus this kept RetinaFace's detection rate at about a third
+# of the time, and let MediaPipe find 99% of faces instead of 1%; SCRFD was faster and found more faces
+# on whole frames, so it keeps them.
+HEAD_CROP_FACE_BACKENDS = {"retinaface", "mediapipe"}
+# Sampled frames passed to the gaze model per forward pass; batching amortizes per-call overhead.
+GAZE_BATCH_SIZE = 8
 PERSON_DETECTION_BACKENDS = {
     "yolo26x-pose": "https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-pose.pt",
 }

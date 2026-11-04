@@ -151,7 +151,7 @@ venv/bin/streamlit run app.py
 - `Object detection backend`
   - 选择 YOLO26 detection backend（`yolo26n`、`yolo26s`、`yolo26m`、`yolo26l` 或 `yolo26x`）。已下载的权重会保留在 `~/.EAGLE/` 中以便复用。
 - `Face detection backend`
-  - 默认是 `retinaface`；使用 SCRFD 时选择 `scrfd`，使用 MediaPipe 时选择 `mediapipe`。选择 `yolo-pose` 时不进行人脸检测，而是由 YOLO 姿态关键点（鼻子、眼睛、耳朵）生成头部框；它速度最快，在基准测试中与检测到的人脸效果相当。
+  - 默认是 `retinaface`；使用 SCRFD 时选择 `scrfd`，使用 MediaPipe 时选择 `mediapipe`。选择 `yolo-pose` 时不进行人脸检测，而是由 YOLO 姿态关键点（鼻子、眼睛、耳朵）生成头部框；它速度最快，在基准测试中与检测到的人脸效果相当。`retinaface` 和 `mediapipe` 会在根据姿态估计出的每个人头部周围放大裁剪的图像上检测人脸，能检测广角画面中的小脸，并且比在整帧上检测更快；`scrfd` 在整帧上检测。
 - `Gaze detection backend`
   - `gazelle`（官方 GAZELLE 预训练模型，DINOv2 ViT-L）、`gazelle_dinov3_vitb16`（GAZELLE-DINOv3，DINOv3 ViT-B）、`page_vitb`（PaGE，DINOv3 ViT-B），或放在 `~/.EAGLE/custom/gaze/` 中的微调 GAZELLE 模型。
 - `Head pose detection backend`
@@ -178,6 +178,8 @@ venv/bin/streamlit run app.py
   - 人物框的平滑窗口。
 - `Merge duplicate and switched person tracks`、`Duplicate track IoU`、`ID switch max gap (seconds)`
   - 仅限视频，默认开启。将框住同一人物的轨迹（在共同帧中至少 80% 的帧 IoU 不低于 0.6，或一个框位于另一个框内且头部位置一致）合并到较长的轨迹中；若某条轨迹在另一条轨迹结束后 3 秒内、在相同位置以相近大小出现，则视为其延续（ID 切换）并连接。中间的空缺通过插值补全。后处理前的轨迹保存在 `persons_raw.csv` 中，修改这些设置时只会重新执行后处理。
+- `Min person duration for gaze estimation (fraction of video)`
+  - 仅限视频，默认 0.5。后处理之后，出现时间少于视频全长该比例的人物轨迹（路过的人、残留的误检片段）会从 `persons.csv` 中移除：不对其进行视线估计，也不作为视线目标。如需保留所有人（例如视频中途有人进出），请设为 0。
 - `Object smoothing window`
   - 跟踪对象框的平滑窗口。
 - `Face smoothing window`
@@ -224,7 +226,8 @@ UI 暴露了 [`config/botsort.yaml`](config/botsort.yaml) 中的这些 tracker �
 ## 加速提示
 - 在 NVIDIA GPU 上使用 `cuda:*`；在 Apple Silicon 上如可用则使用 `mps`。
 - 降低各阶段 FPS 可以减少重复检测工作，尤其是 gaze 以外的阶段。
-- 如果人脸大多是正面，可以尝试将 face detection backend 设为 `mediapipe`。
+- `yolo-pose` 完全跳过人脸检测；在人脸检测器中 `scrfd` 最快。
+- 在 CUDA 上，视线模型会一次处理多帧并使用 float16（默认 `gaze_half_precision=True`），比逐帧 float32 推理快约 3 倍，结果相同。
 
 ## 输出文件
 当前输出可能包括：
