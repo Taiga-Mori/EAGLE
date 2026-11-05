@@ -22,7 +22,7 @@ from PIL import Image
 from timm.models.vision_transformer import Block
 from torchvision import transforms
 
-from .coreml import CoreMLBackbone
+from .coreml import PaGECoreML
 
 # Meta's DINOv3 code at the commit PINTO0309/gazelle-dinov3 was trained against.
 DINOV3_COMMIT = "7bf81b2a0eb0e330dbc84a5d3d31d86ed3cdbd84"
@@ -91,13 +91,16 @@ class PaGEGazeModel:
         self.model = model
         self.processor = processor
         self.half_precision = False
+        # Set by ModelManager on Apple silicon; the PyTorch model then stays on the CPU unused.
+        self.coreml: PaGECoreML | None = None
 
     @property
     def uses_coreml(self) -> bool:
-        return isinstance(self.model.scene_branch_backbone, CoreMLBackbone)
+        return self.coreml is not None
 
     def to(self, device: str) -> "PaGEGazeModel":
-        self.model.to(device)
+        if self.coreml is None:
+            self.model.to(device)
         return self
 
     def predict(self, frame_pil: Image.Image, bboxes: list[tuple[float, float, float, float]], device: str):
@@ -115,6 +118,8 @@ class PaGEGazeModel:
             inputs = self.processor(frame_pil, head_crops=self._head_crops(frame_pil, bboxes), bboxes=[bboxes])
             scene_images.append(inputs["images"])
             head_images.append(inputs["head_images"][0])
+        if self.coreml is not None:
+            return self._predict_coreml(torch.cat(scene_images), torch.cat(head_images), bboxes_per_frame)
         inputs = {
             "images": torch.cat(scene_images).to(device),
             "head_images": [torch.cat(head_images).to(device)],
@@ -123,6 +128,15 @@ class PaGEGazeModel:
         with torch.inference_mode(), _half_precision_context(device, self.half_precision):
             output = self.model(inputs)
         return [(heatmap.float(), inout.float()) for heatmap, inout in zip(output["heatmap"], output["inout"])]
+
+    def _predict_coreml(self, scene_images, head_images, bboxes_per_frame):
+        _, head_rects = self.model.get_input_head_maps(bboxes_per_frame)
+        owners = [frame for frame, bboxes in enumerate(bboxes_per_frame) for _ in bboxes]
+        heatmaps, inouts = self.coreml(scene_images, head_images, torch.cat(head_rects), owners)
+        heatmaps = torch.sigmoid(TF.resize(heatmaps.float(), self.model.heatmap_out_size))
+        inouts = torch.sigmoid(inouts.float())
+        counts = [len(bboxes) for bboxes in bboxes_per_frame]
+        return list(zip(heatmaps.split(counts), inouts.split(counts)))
 
     @staticmethod
     def _head_crops(frame_pil: Image.Image, bboxes: list[tuple[float, float, float, float]]) -> list[Image.Image]:

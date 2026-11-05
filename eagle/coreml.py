@@ -1,10 +1,8 @@
 """Core ML versions of the heaviest models, used on Apple silicon (device "mps").
 
 On an M3 MacBook Air, YOLO26x ran in 17 ms per 384x640 frame in Core ML (Neural Engine and GPU)
-against 57 ms in PyTorch MPS float16, and Core ML on the GPU cut PaGE by about 35% against PyTorch
-MPS float32 with the same heatmap peaks. Models are converted on first use and cached under
-~/.EAGLE/coreml. PaGE stays off the Neural Engine: there its features came out wrong (cosine
-similarity 0.77), most likely from float16 overflow.
+against 57 ms in PyTorch MPS float16. RetinaFace and PaGE gain as much; see their classes. Models are
+converted on first use and cached under ~/.EAGLE/coreml.
 
 Set EAGLE_DISABLE_COREML=1 to run everything in PyTorch instead.
 """
@@ -87,45 +85,15 @@ def yolo_coreml_path(pt_path: Path, app_dir: Path, input_shape: tuple[int, int])
     return target
 
 
-class CoreMLBackbone(nn.Module):
-    """Stand-in for a PaGE backbone that runs a Core ML conversion of it one image at a time."""
-
-    def __init__(self, mlmodel, input_name: str, output_name: str) -> None:
-        super().__init__()
-        self.mlmodel = mlmodel
-        self.input_name = input_name
-        self.output_name = output_name
-
-    def forward(self, x):
-        if isinstance(x, (list, tuple)):
-            # PaGE passes the head stream as a one-element list.
-            assert len(x) == 1
-            x = x[0]
-        images = x.detach().to("cpu", torch.float32).numpy()
-        features = [
-            self.mlmodel.predict({self.input_name: images[index : index + 1]})[self.output_name]
-            for index in range(images.shape[0])
-        ]
-        return torch.from_numpy(np.concatenate(features)).to(device=x.device, dtype=x.dtype)
-
-
-def install_page_coreml_backbones(page_model: nn.Module, cache_key: str, app_dir: Path) -> None:
-    """Replace PaGE's scene and head backbones with Core ML conversions running on the GPU.
-
-    Both are needed: interleaved runs on 3-person frames took 777 ms per frame in PyTorch, 570 ms
-    with only the scene backbone in Core ML and 502 ms with both.
-    """
-    for attribute in ("scene_branch_backbone", "head_branch_backbone"):
-        backbone = getattr(page_model, attribute)
-        if isinstance(backbone, CoreMLBackbone):
-            continue
-        height, width = backbone.in_size
-        path = app_dir / COREML_DIR_NAME / f"{cache_key}-{attribute}-{height}x{width}.mlpackage"
-        _convert_backbone(backbone, path, (1, 3, height, width))
-        setattr(page_model, attribute, _load_backbone(path))
-
-
-def _convert_backbone(backbone: nn.Module, path: Path, input_shape: tuple[int, ...]) -> None:
+def _convert(
+    module: nn.Module,
+    path: Path,
+    example_inputs: tuple[torch.Tensor, ...],
+    input_names: list[str],
+    output_names: list[str],
+    label: str,
+) -> None:
+    """Trace a module on the CPU in float32 and save it as a float16 Core ML program."""
     if path.exists():
         return
     ct = _import_coremltools()
@@ -133,15 +101,14 @@ def _convert_backbone(backbone: nn.Module, path: Path, input_shape: tuple[int, .
     with FileLock(str(path.parent / f"{path.name}.lock")):
         if path.exists():
             return
-        print(f"Converting the PaGE backbone to Core ML as {path.name} (first run only)...", flush=True)
-        model = copy.deepcopy(backbone).to("cpu", torch.float32).eval()
-        example = torch.zeros(input_shape)
+        print(f"Converting {label} to Core ML (first run only)...", flush=True)
         with torch.no_grad(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            traced = torch.jit.trace(model, example, check_trace=False)
+            traced = torch.jit.trace(module.eval(), example_inputs, check_trace=False)
             mlmodel = ct.convert(
                 traced,
-                inputs=[ct.TensorType(name="x", shape=input_shape)],
+                inputs=[ct.TensorType(name=name, shape=tuple(x.shape)) for name, x in zip(input_names, example_inputs)],
+                outputs=[ct.TensorType(name=name) for name in output_names],
                 compute_precision=ct.precision.FLOAT16,
                 minimum_deployment_target=ct.target.macOS15,
                 convert_to="mlprogram",
@@ -152,8 +119,144 @@ def _convert_backbone(backbone: nn.Module, path: Path, input_shape: tuple[int, .
         work_path.rename(path)
 
 
-def _load_backbone(path: Path) -> CoreMLBackbone:
+def _load(path: Path, compute_units: str):
     ct = _import_coremltools()
-    mlmodel = ct.models.MLModel(str(path), compute_units=ct.ComputeUnit.CPU_AND_GPU)
-    description = mlmodel.get_spec().description
-    return CoreMLBackbone(mlmodel, description.input[0].name, description.output[0].name)
+    return ct.models.MLModel(str(path), compute_units=getattr(ct.ComputeUnit, compute_units))
+
+
+def _predict_all(mlmodel, inputs: list[dict]) -> list[dict]:
+    """Predict a list of inputs in one Core ML batch request.
+
+    The programs have a fixed batch of one (DINOv3's attention does not convert with a flexible batch),
+    but a batch request still lets Core ML overlap the calls: on an M3 it cut 10-15% per image against
+    calling predict in a loop. Threads do not help: predict holds the GIL and the GPU is already busy.
+    """
+    if not inputs:
+        return []
+    if len(inputs) == 1:
+        return [mlmodel.predict(inputs[0])]
+    return mlmodel.predict(inputs)
+
+
+class RetinaFaceCoreML:
+    """RetinaFace converted to Core ML for one max_size x max_size image at a time.
+
+    On the Neural Engine a 512x512 head crop took 10 ms, against 30 ms for PyTorch MPS in float16 with
+    three crops per batch; face scores moved by at most 0.002.
+    """
+
+    def __init__(self, network: nn.Module, max_size: int, app_dir: Path) -> None:
+        path = app_dir / COREML_DIR_NAME / f"retinaface-resnet50_2020-07-20-{max_size}x{max_size}.mlpackage"
+        if not path.exists():
+            network = copy.deepcopy(network).to("cpu", torch.float32)
+            for module in network.modules():
+                if isinstance(module, nn.LeakyReLU):
+                    # retinaface sets an int slope of 0, which coremltools rejects.
+                    module.negative_slope = float(module.negative_slope)
+                    module.inplace = False
+            _convert(network, path, (torch.zeros(1, 3, max_size, max_size),), ["x"], ["loc", "conf", "land"], "RetinaFace")
+        self.mlmodel = _load(path, "ALL")
+
+    def __call__(self, images: np.ndarray) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        outputs = _predict_all(self.mlmodel, [{"x": images[index : index + 1]} for index in range(images.shape[0])])
+        return tuple(torch.from_numpy(np.concatenate([output[name] for output in outputs])) for name in ("loc", "conf", "land"))
+
+
+class _PaGESceneEncoder(nn.Module):
+    """PaGE's per-frame part: scene backbone, projection, front tokens and scene self-attention."""
+
+    def __init__(self, page_model: nn.Module) -> None:
+        super().__init__()
+        self.page = page_model
+
+    def forward(self, images):
+        page = self.page
+        tokens = page.scene_proj(page.scene_branch_backbone(images)).flatten(start_dim=2).permute(0, 2, 1)
+        batch = tokens.shape[0]
+        if page.n_reg_tokens > 0:
+            tokens = torch.cat([page.scene_register_tokens.expand(batch, -1, -1), tokens], dim=1)
+        tokens = torch.cat([page.scene_inout_token.expand(batch, -1, -1), tokens], dim=1)
+        return page.scene_self_attn_layers(tokens)
+
+
+class _PaGEPersonDecoder(nn.Module):
+    """PaGE's per-person part, up to the heatmap and in/out logits before resizing and sigmoid."""
+
+    def __init__(self, page_model: nn.Module) -> None:
+        super().__init__()
+        self.page = page_model
+
+    def forward(self, head_images, scene_tokens, head_rects):
+        page = self.page
+        tokens = page.head_proj(page.head_branch_backbone(head_images)).flatten(start_dim=2).permute(0, 2, 1)
+        batch = tokens.shape[0]
+        if page.n_reg_tokens > 0:
+            tokens = torch.cat([page.head_register_tokens.expand(batch, -1, -1), tokens], dim=1)
+        tokens = torch.cat([page.head_inout_token.expand(batch, -1, -1), tokens], dim=1)
+        tokens = page.head_self_attn_layers(tokens)
+        out = page.scene_head_interaction_layers({"scene_tokens": scene_tokens, "head_tokens": tokens, "head_rects": head_rects})
+        inout = page.inout_head(torch.cat((out["scene_tokens"][:, 0, :], out["head_tokens"][:, 0, :]), dim=1)).squeeze(dim=-1)
+        scene_patch_tokens = out["scene_tokens"][:, page.n_front_tokens :, :]
+        featmap = scene_patch_tokens.reshape(batch, page.scene_featmap_h, page.scene_featmap_w, -1).permute(0, 3, 1, 2)
+        return page.heatmap_head(featmap).squeeze(dim=1), inout
+
+
+class PaGECoreML:
+    """PaGE run as two Core ML programs on the GPU: one per frame and one per person.
+
+    PaGE without a head prompt gives every person in a frame the same scene tokens up to the
+    scene-head interaction, so that part runs once per frame. On an M3 a 3-person frame took about
+    210 ms (88 ms per frame plus 40 ms per person) with the same heatmap peaks as PyTorch. Converting
+    with a fixed batch of 4 saved only 5-10%, so the programs take one image at a time. PaGE stays off the
+    Neural Engine: there its heatmap peaks moved by up to 38 cells, most likely from float16 overflow.
+    """
+
+    @staticmethod
+    def supports(page_model: nn.Module) -> bool:
+        return page_model.pos_encoding == "rope" and not page_model.use_head_prompt and page_model.inout
+
+    def __init__(self, page_model: nn.Module, cache_key: str, app_dir: Path) -> None:
+        coreml_dir = app_dir / COREML_DIR_NAME
+        scene_h, scene_w = page_model.scene_branch_backbone.in_size
+        head_h, head_w = page_model.head_branch_backbone.in_size
+        scene_path = coreml_dir / f"{cache_key}-scene-{scene_h}x{scene_w}.mlpackage"
+        person_path = coreml_dir / f"{cache_key}-person-{head_h}x{head_w}.mlpackage"
+        if not (scene_path.exists() and person_path.exists()):
+            page_cpu = copy.deepcopy(page_model).to("cpu", torch.float32).eval()
+            scene_images = torch.zeros(1, 3, scene_h, scene_w)
+            with torch.no_grad():
+                scene_tokens = _PaGESceneEncoder(page_cpu)(scene_images)
+            # Any head rectangle inside the feature map works for tracing; it only fixes the shapes.
+            head_rects = torch.tensor([[2.0, 2.0, 6.0, 6.0]])
+            _convert(_PaGESceneEncoder(page_cpu), scene_path, (scene_images,), ["images"], ["scene_tokens"], "PaGE (scene part)")
+            _convert(
+                _PaGEPersonDecoder(page_cpu),
+                person_path,
+                (torch.zeros(1, 3, head_h, head_w), scene_tokens, head_rects),
+                ["head_images", "scene_tokens", "head_rects"],
+                ["heatmap", "inout"],
+                "PaGE (person part)",
+            )
+        self.scene = _load(scene_path, "CPU_AND_GPU")
+        self.person = _load(person_path, "CPU_AND_GPU")
+
+    def __call__(self, images: torch.Tensor, head_images: torch.Tensor, head_rects: torch.Tensor, owners: list[int]):
+        """Return heatmap and in/out logits for every person; owners[i] is person i's frame index."""
+        images = images.to("cpu", torch.float32).numpy()
+        head_images = head_images.to("cpu", torch.float32).numpy()
+        head_rects = head_rects.to("cpu", torch.float32).numpy()
+        scene_outputs = _predict_all(self.scene, [{"images": images[index : index + 1]} for index in range(images.shape[0])])
+        person_outputs = _predict_all(
+            self.person,
+            [
+                {
+                    "head_images": head_images[person : person + 1],
+                    "scene_tokens": scene_outputs[owner]["scene_tokens"],
+                    "head_rects": head_rects[person : person + 1],
+                }
+                for person, owner in enumerate(owners)
+            ],
+        )
+        heatmaps = np.concatenate([output["heatmap"] for output in person_outputs])
+        inouts = np.concatenate([output["inout"] for output in person_outputs])
+        return torch.from_numpy(heatmaps), torch.from_numpy(inouts)

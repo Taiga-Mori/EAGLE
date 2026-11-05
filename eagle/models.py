@@ -34,7 +34,7 @@ from .l2cs import l2cs_resnet50
 from .mobile_gaze import mobileone_s0_gaze
 from .gat_gaze import GAT_CHECKPOINT_URL, load_gat_model
 from .scrfd import SCRFDFaceDetector
-from .coreml import coreml_enabled, install_page_coreml_backbones, yolo_coreml_path
+from .coreml import PaGECoreML, RetinaFaceCoreML, coreml_enabled, yolo_coreml_path
 from .gaze_models import (
     GAZELLE_DINOV3_MODELS,
     PAGE_MODELS,
@@ -76,7 +76,7 @@ def retinaface_detect_batch(
     """Run RetinaFace on several images in one forward pass.
 
     Matches retinaface's predict_jsons, which takes one image per call, and runs the network in
-    whatever precision its weights are in. On MPS, 3 head crops in one batch took 30 ms each against
+    Core ML when ModelManager attached a conversion, otherwise in whatever precision its weights are in. On MPS, 3 head crops in one batch took 30 ms each against
     43 ms one at a time.
     """
     if not images:
@@ -84,15 +84,21 @@ def retinaface_detect_batch(
     max_size = retinaface.max_size
     padded = [pad_to_size(target_size=(max_size, max_size), image=retinaface.transform(image=image)["image"]) for image in images]
     batch = torch.from_numpy(np.stack([item["image"] for item in padded]).transpose(0, 3, 1, 2))
-    weight_dtype = next(retinaface.model.parameters()).dtype
     with torch.inference_mode():
-        loc, conf, land = retinaface.model(batch.to(retinaface.device, weight_dtype))
+        coreml = getattr(retinaface, "coreml", None)
+        if coreml is not None:
+            loc, conf, land = coreml(batch.numpy())
+            prior_box = retinaface.prior_box.cpu()
+        else:
+            weight_dtype = next(retinaface.model.parameters()).dtype
+            loc, conf, land = retinaface.model(batch.to(retinaface.device, weight_dtype))
+            prior_box = retinaface.prior_box
         loc, conf, land = loc.float(), conf.float().softmax(dim=-1), land.float()
         scale = torch.tensor([max_size, max_size], device=loc.device, dtype=torch.float32)
         results: list[list[dict]] = []
         for index, (image, item) in enumerate(zip(images, padded)):
-            boxes = decode(loc[index], retinaface.prior_box, retinaface.variance) * scale.repeat(2)
-            landmarks = decode_landm(land[index], retinaface.prior_box, retinaface.variance) * scale.repeat(5)
+            boxes = decode(loc[index], prior_box, retinaface.variance) * scale.repeat(2)
+            landmarks = decode_landm(land[index], prior_box, retinaface.variance) * scale.repeat(5)
             scores = conf[index][:, 1]
             valid = torch.where(scores > confidence_threshold)[0]
             boxes, landmarks, scores = boxes[valid], landmarks[valid], scores[valid]
@@ -587,7 +593,10 @@ class ModelManager:
                     self.retinaface = get_model("resnet50_2020-07-20", max_size=retinaface_max_size, device=device)
                 self.retinaface_max_size = retinaface_max_size
                 self.retinaface.eval()
-                if device == "mps":
+                self.retinaface.coreml = None
+                if coreml_enabled(device):
+                    self.retinaface.coreml = RetinaFaceCoreML(self.retinaface.model, retinaface_max_size, self.paths.app_dir)
+                elif device == "mps":
                     # float16 found the same faces as float32 on 180 head crops (mean box IoU 0.9995) and
                     # cut a 512x512 crop from 78 to 49 ms.
                     self.retinaface.model.half()
@@ -683,8 +692,13 @@ class ModelManager:
                     "GaT needs the einops package and downloads the Swin3D code from facebookresearch/omnivore.\n"
                     f"Original error: {exc}"
                 ) from exc
-        if isinstance(self.gaze_model, PaGEGazeModel) and coreml_enabled(device):
-            spec = PAGE_MODELS[gaze_detection_backend]
-            install_page_coreml_backbones(self.gaze_model.model, f"{gaze_detection_backend}-{spec['revision'][:12]}", self.paths.app_dir)
+        if (
+            isinstance(self.gaze_model, PaGEGazeModel)
+            and self.gaze_model.coreml is None
+            and coreml_enabled(device)
+            and PaGECoreML.supports(self.gaze_model.model)
+        ):
+            revision = PAGE_MODELS[gaze_detection_backend]["revision"][:12]
+            self.gaze_model.coreml = PaGECoreML(self.gaze_model.model, f"{gaze_detection_backend}-{revision}", self.paths.app_dir)
         self.gaze_model.to(device)
         self.loaded_device = device
