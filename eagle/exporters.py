@@ -9,9 +9,9 @@ import cv2
 import numpy as np
 import pandas as pd
 
-from .body_parts import resolve_person_part_label
 from .constants import ANNOTATION_COLUMNS
 from .ffmpeg import ffmpeg_executable
+from .targets import resolve_gaze_target
 from .types import AppPaths, MediaContext
 
 
@@ -276,10 +276,14 @@ class AnnotationExporter:
                 {
                     "frame_idx": frame_idx,
                     "track_id": track_id,
-                    "target": self._resolve_target(
-                        gaze_row,
-                        object_by_frame.get(frame_idx, []),
+                    "target": resolve_gaze_target(
+                        gaze_row["track_id"],
+                        gaze_row["inout"],
+                        gaze_row["x_gaze"],
+                        gaze_row["y_gaze"],
+                        gaze_row.get("offscreen_direction"),
                         face_by_frame.get(frame_idx, []),
+                        object_by_frame.get(frame_idx, []),
                         det_thresh,
                         gaze_target_radius,
                         person_part_distance_scale,
@@ -398,90 +402,6 @@ class AnnotationExporter:
 
     def _gaze_tier_label(self, track_id: object) -> str:
         return f"person {str(track_id)}_Gaze"
-
-    def _resolve_target(
-        self,
-        gaze_row: dict,
-        frame_objects: list[dict],
-        frame_faces: list[dict],
-        det_thresh: float,
-        gaze_target_radius: int,
-        person_part_distance_scale: float,
-        person_part_min_conf: float,
-        selected_object_classes: set[str],
-    ) -> str:
-        if pd.isna(gaze_row["inout"]):
-            return "out of frame"
-        if float(gaze_row["inout"]) <= det_thresh:
-            if "offscreen_direction" in gaze_row and pd.notna(gaze_row["offscreen_direction"]):
-                return str(gaze_row["offscreen_direction"])
-            return "out of frame"
-        if pd.isna(gaze_row["x_gaze"]) or pd.isna(gaze_row["y_gaze"]):
-            return "other"
-
-        candidates: list[tuple[float, str]] = []
-
-        for hit in frame_faces:
-            if str(hit["track_id"]) == str(gaze_row["track_id"]):
-                continue
-            if self._point_hits_box(
-                int(gaze_row["x_gaze"]),
-                int(gaze_row["y_gaze"]),
-                int(hit["face_x1"]),
-                int(hit["face_y1"]),
-                int(hit["face_x2"]),
-                int(hit["face_y2"]),
-                gaze_target_radius,
-            ):
-                candidates.append((float(hit["face_area"]), f"person {hit['track_id']}'s face"))
-
-        for hit in frame_objects:
-            if self._point_hits_box(
-                int(gaze_row["x_gaze"]),
-                int(gaze_row["y_gaze"]),
-                int(hit["x1"]),
-                int(hit["y1"]),
-                int(hit["x2"]),
-                int(hit["y2"]),
-                gaze_target_radius,
-            ):
-                if str(hit["cls"]) == "person":
-                    part_label = resolve_person_part_label(
-                        hit,
-                        int(gaze_row["x_gaze"]),
-                        int(gaze_row["y_gaze"]),
-                        gaze_target_radius,
-                        person_part_distance_scale,
-                        person_part_min_conf,
-                    )
-                    if part_label is not None and part_label != "other":
-                        candidates.append((float(hit["area"]), f"person {hit['track_id']}'s {part_label}"))
-                elif str(hit["cls"]) in selected_object_classes:
-                    candidates.append((float(hit["area"]), str(hit["label"])))
-
-        if not candidates:
-            return "other"
-        _, target = min(candidates, key=lambda item: item[0])
-        return target
-
-    def _point_hits_box(
-        self,
-        x: int,
-        y: int,
-        x1: int,
-        y1: int,
-        x2: int,
-        y2: int,
-        radius: int,
-    ) -> bool:
-        if radius <= 0:
-            return x1 <= x <= x2 and y1 <= y <= y2
-
-        closest_x = min(max(x, x1), x2)
-        closest_y = min(max(y, y1), y2)
-        dx = x - closest_x
-        dy = y - closest_y
-        return (dx * dx) + (dy * dy) <= (radius * radius)
 
     def _video_has_audio_stream(self, video_path: Path) -> bool:
         audio_prop = getattr(cv2, "CAP_PROP_AUDIO_TOTAL_STREAMS", None)
