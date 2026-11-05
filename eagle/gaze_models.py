@@ -22,6 +22,8 @@ from PIL import Image
 from timm.models.vision_transformer import Block
 from torchvision import transforms
 
+from .coreml import CoreMLBackbone
+
 # Meta's DINOv3 code at the commit PINTO0309/gazelle-dinov3 was trained against.
 DINOV3_COMMIT = "7bf81b2a0eb0e330dbc84a5d3d31d86ed3cdbd84"
 DINOV3_ARCHIVE_URL = f"https://github.com/facebookresearch/dinov3/archive/{DINOV3_COMMIT}.zip"
@@ -89,6 +91,10 @@ class PaGEGazeModel:
         self.model = model
         self.processor = processor
         self.half_precision = False
+
+    @property
+    def uses_coreml(self) -> bool:
+        return isinstance(self.model.scene_branch_backbone, CoreMLBackbone)
 
     def to(self, device: str) -> "PaGEGazeModel":
         self.model.to(device)

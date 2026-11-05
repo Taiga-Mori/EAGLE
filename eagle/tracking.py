@@ -2,11 +2,13 @@ import json
 import math
 from typing import Any
 
+import cv2
 import pandas as pd
 import torch
 import yaml
 
 from .constants import OBJECT_COLUMNS, YOLO_BATCH_SIZE
+from .coreml import coreml_enabled, yolo_input_shape
 from .models import ModelManager
 from .progress import update_progress
 from .temporal import ObjectTrackSmoother, PersonTrackPostprocessor
@@ -228,8 +230,27 @@ class ObjectTracker:
         return self._track_video("yolo", context, device, context.object_stride)
 
     def _track_video(self, model_name: str, context: MediaContext, device: str, stride: int):
+        if coreml_enabled(device):
+            capture = cv2.VideoCapture(str(context.media_path))
+            width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            capture.release()
+            if width > 0 and height > 0:
+                input_shape = yolo_input_shape(width, height)
+                # A Core ML export has a fixed batch of one; it runs on the Neural Engine and the GPU.
+                return self.models.yolo_coreml_model(model_name, input_shape).track(
+                    source=str(context.media_path),
+                    stream=True,
+                    verbose=False,
+                    tracker=str(self.paths.botsort_runtime_path),
+                    vid_stride=stride,
+                    device="cpu",
+                    batch=1,
+                    imgsz=list(input_shape),
+                )
         # Batched float16 inference: per-frame calls are bound by launch overhead, not by the GPU.
-        half = device.startswith("cuda")
+        # On MPS float16 kept the detections (box IoU >= 0.98) and cut YOLO26x from about 100 to 57 ms per frame.
+        half = device.startswith("cuda") or device == "mps"
         return self.models.yolo_model(model_name, half).track(
             source=str(context.media_path),
             stream=True,

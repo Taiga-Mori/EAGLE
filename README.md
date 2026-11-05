@@ -232,6 +232,7 @@ We compared configurations on 12 sessions of the [Chiba Three-party Conversation
 - `yolo-pose` skips face detection altogether, and `scrfd` is the fastest face detector.
 - The gaze model runs on several frames at once, in float16 on CUDA (`gaze_half_precision=True` by default); on CUDA this is about 3x faster than frame by frame in float32 with the same results. On Apple MPS it stays in float32: on an M3, float16 moved the heatmap peak by up to 50 px on the 64x64 heatmap (GAZELLE-DINOv3) and was not faster.
 - On Apple MPS, attention layers use plain matrix multiplications instead of PyTorch's SDPA kernel, which made the gaze models 25-30% faster on an M3 with the same results.
+- On Apple Silicon (`mps`), YOLO and the PaGE backbones run through Core ML, and RetinaFace runs in float16 on all of a frame's head crops at once. On an M3 MacBook Air this cut a 20-second, 3-person clip at 15 FPS from 6:23 to 3:46 with the same tracks and gaze points (person box IoU 0.996, identical PaGE heatmap peaks). The models are converted once on first use (a few minutes) and cached in `~/.EAGLE/coreml`. Set `EAGLE_DISABLE_COREML=1` to use PyTorch only; YOLO then runs in float16 on MPS.
 - Person and object tracking run YOLO on 16 frames at a time, in float16 on CUDA; on our benchmark this halved the tracking time with the same results.
 - If you only need the CSV and ELAN outputs, turn off `Render visualization videos` (`render_video=False`) to skip drawing and encoding the annotated videos.
 

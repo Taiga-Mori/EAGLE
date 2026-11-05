@@ -22,7 +22,7 @@ from .constants import (
 from .exporters import AnnotationExporter, PipedVideoWriter
 from .gat_gaze import gaze_vector_to_yaw_pitch_deg, head_box_from_face_box, preprocess_head_crop
 from .metacache import load_meta_snapshot, meta_snapshot_matches
-from .models import ModelManager
+from .models import ModelManager, retinaface_detect_batch
 from .progress import update_progress
 from .temporal import GazePointResolver, GazeTemporalProcessor
 from .types import FaceDetection, GazePoint, GazeRecord, MediaContext
@@ -1571,13 +1571,15 @@ class FaceGazeEstimator:
         if face_detection_backend == "yolo-pose":
             return []
         height, width = frame.shape[:2]
+        crops = [crop for crop in (self._head_crop(frame, detection) for detection in person_detections) if crop is not None]
+        images = [image for image, _, _, _ in crops]
+        if face_detection_backend == "retinaface":
+            candidates_per_crop = self._detect_retinaface_candidates(images, det_thresh)
+        else:
+            candidates_per_crop = [self._detect_face_candidates(image, det_thresh, face_detection_backend) for image in images]
         faces: list[dict] = []
-        for detection in person_detections:
-            crop = self._head_crop(frame, detection)
-            if crop is None:
-                continue
-            image, x0, y0, scale = crop
-            for face in self._detect_face_candidates(image, det_thresh, face_detection_backend):
+        for (_, x0, y0, scale), candidates in zip(crops, candidates_per_crop):
+            for face in candidates:
                 cx1, cy1, cx2, cy2 = (float(value) for value in face["bbox"][:4])
                 x1 = int(round(min(max(x0 + cx1 / scale, 0), width - 1)))
                 y1 = int(round(min(max(y0 + cy1 / scale, 0), height - 1)))
@@ -1613,6 +1615,13 @@ class FaceGazeEstimator:
         interpolation = cv2.INTER_LINEAR if scale >= 1.0 else cv2.INTER_AREA
         return cv2.resize(canvas, (FACE_CROP_SIZE, FACE_CROP_SIZE), interpolation=interpolation), x0, y0, scale
 
+    def _detect_retinaface_candidates(self, images: list[np.ndarray], det_thresh: float) -> list[list[dict]]:
+        assert self.models.retinaface is not None
+        return [
+            [face for face in faces if float(face["score"]) >= det_thresh and face.get("bbox")]
+            for faces in retinaface_detect_batch(self.models.retinaface, images)
+        ]
+
     def _detect_face_candidates(
         self,
         frame: np.ndarray,
@@ -1623,9 +1632,7 @@ class FaceGazeEstimator:
             # No face detector: every person's head box comes from the pose-keypoint fallback.
             return []
         if face_detection_backend == "retinaface":
-            assert self.models.retinaface is not None
-            raw_faces = self.models.retinaface.predict_jsons(frame)
-            return [face for face in raw_faces if float(face["score"]) >= det_thresh and face.get("bbox")]
+            return self._detect_retinaface_candidates([frame], det_thresh)[0]
         if face_detection_backend == "scrfd":
             assert self.models.scrfd is not None
             return self.models.scrfd.detect(frame, det_thresh)
