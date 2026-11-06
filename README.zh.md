@@ -230,6 +230,7 @@ UI 暴露了 [`config/botsort.yaml`](config/botsort.yaml) 中的这些 tracker �
 - `yolo-pose` 完全跳过人脸检测；在人脸检测器中 `scrfd` 最快。
 - 视线模型会一次处理多帧，在 CUDA 上使用 float16（默认 `gaze_half_precision=True`）；在 CUDA 上比逐帧 float32 推理快约 3 倍，结果相同。在 Apple MPS 上保持 float32：在 M3 上，float16 会使 64x64 热力图的峰值最多偏移 50 px（GAZELLE-DINOv3），而且并不更快。
 - 在 Apple MPS 上，attention 层使用普通矩阵乘法而不是 PyTorch 的 SDPA 内核；在 M3 上视线模型快了 25-30%，结果相同。
+- 在 Apple Silicon（`mps`）上，YOLO、RetinaFace 和 PaGE 通过 Core ML 运行（YOLO 和 RetinaFace 在神经网络引擎上，PaGE 在 GPU 上）。在 M3 MacBook Air 上，一段 3 人、20 秒、15 FPS 的视频从 6:23 缩短到 1:50，跟踪结果和视线点不变（人物框 IoU 0.996，PaGE 热力图峰值与 PyTorch 相差不超过 2 格）。模型在首次使用时转换一次（几分钟），并缓存在 `~/.EAGLE/coreml`。设置 `EAGLE_DISABLE_COREML=1` 可只使用 PyTorch；此时 YOLO 和 RetinaFace 在 MPS 上以 float16 运行。
 - 人物和物体跟踪会让 YOLO 一次处理 16 帧，在 CUDA 上使用 float16；在我们的基准测试中，跟踪时间减半且结果相同。
 - 如果只需要 CSV 和 ELAN 输出，可以关闭 `Render visualization videos`（`render_video=False`），跳过注释视频的绘制和编码。
 

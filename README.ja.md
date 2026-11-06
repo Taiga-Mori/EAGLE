@@ -230,6 +230,7 @@ UI では [`config/botsort.yaml`](config/botsort.yaml) の以下の tracker 設�
 - `yolo-pose` は顔検出そのものを省きます。顔検出器の中では `scrfd` が最も高速です。
 - 視線モデルは複数フレームをまとめて推論し、CUDA では float16 を使います（既定で `gaze_half_precision=True`）。CUDA では、1フレームずつ float32 で推論するより約3倍速く、結果は同じです。Apple の MPS では float32 のままです。M3 では float16 にすると 64x64 のヒートマップ上でピークが最大 50 px ずれ（GAZELLE-DINOv3）、速くもなりませんでした。
 - Apple の MPS では、attention 層を PyTorch の SDPA カーネルではなく通常の行列積で計算します。M3 では結果を変えずに視線モデルが 25〜30% 速くなりました。
+- Apple Silicon（`mps`）では、YOLO・RetinaFace・PaGE を Core ML で実行します（YOLO と RetinaFace は Neural Engine、PaGE は GPU）。M3 の MacBook Air では、3人が映る20秒の動画（15 FPS）が 6分23秒 から 1分50秒 になり、追跡結果と視線点は変わりませんでした（人物ボックスの IoU 0.996、PaGE のヒートマップのピークは PyTorch との差が2セル以内）。モデルは初回に一度だけ変換され（数分）、`~/.EAGLE/coreml` に保存されます。PyTorch だけで実行するには `EAGLE_DISABLE_COREML=1` を設定してください。その場合 YOLO と RetinaFace は MPS 上で float16 で動きます。
 - 人物と物体の追跡では、YOLO を16フレームずつまとめて推論し、CUDA では float16 を使います。ベンチマークでは結果を変えずに追跡時間が約半分になりました。
 - CSV と ELAN 用の出力だけが必要な場合は、`Render visualization videos` をオフ（`render_video=False`）にすると、注釈付き動画の描画とエンコードを省けます。
 
