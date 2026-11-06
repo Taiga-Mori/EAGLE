@@ -210,21 +210,26 @@ The UI exposes these tracker settings from [`config/botsort.yaml`](config/botsor
 - `appearance_thresh`
 
 ## Benchmark
-We compared configurations on 12 sessions of the [Chiba Three-party Conversation Corpus](https://research.nii.ac.jp/src/en/Chiba3Party.html) (three seated participants, one wide-angle camera, 720x480, 9.4 minutes per session) against human gaze annotation. Each participant's frame label is the other participant they look at (gaze on that person's face) or *none*. Times are medians per session on one NVIDIA GeForce RTX 3090, for face detection plus gaze estimation and export; person tracking (shared by all settings) took another 7.0 minutes.
+We compared configurations on 12 sessions of the [Chiba Three-party Conversation Corpus](https://research.nii.ac.jp/src/en/Chiba3Party.html) (three seated participants, one wide-angle camera, 720x480, 9.4 minutes per session) against human gaze annotation. Each participant's frame label is the other participant they look at (gaze on that person's face) or *none*; frames the annotators marked as gaze shifts are excluded. Times are medians per session on one NVIDIA GeForce RTX 3090 for the whole pipeline, including person tracking (3.4 minutes) but without rendering videos. Head boxes `YOLO pose` come from the pose keypoints (`yolo-pose`); the others come from a face detector.
 
-| Gaze model | Face detector | FPS | Cohen's κ | Macro-F1 | Time (min) |
-|---|---|---|---|---|---|
-| PaGE | SCRFD | 1 | 0.435 | 0.569 | 9.9 |
-| PaGE | SCRFD | 15 | 0.471 | 0.601 | 23.2 |
-| PaGE | MediaPipe | 15 | **0.483** | **0.610** | 25.2 |
-| PaGE | RetinaFace | 29.97 | 0.472 | 0.602 | 65.4 |
-| GAZELLE | SCRFD | 15 | 0.364 | 0.504 | 22.0 |
-| GAZELLE-DINOv3 | SCRFD | 15 | 0.353 | 0.500 | 17.3 |
+| Gaze model | Head boxes | FPS | Gaze point smoothing | Cohen's κ | Macro-F1 | Time (min) |
+|---|---|---|---|---|---|---|
+| PaGE | YOLO pose | 1 | on | 0.463 | 0.594 | 5.3 |
+| PaGE | YOLO pose | 10 | on | **0.522** | 0.642 | 8.5 |
+| PaGE | YOLO pose | 15 | on | **0.522** | **0.643** | 9.9 |
+| PaGE | YOLO pose | 15 | off | 0.504 | 0.617 | 9.9 |
+| PaGE | SCRFD | 15 | off | 0.499 | 0.613 | 10.9 |
+| PaGE | RetinaFace | 15 | off | 0.497 | 0.610 | 15.6 |
+| PaGE | MediaPipe | 15 | off | 0.494 | 0.606 | 18.1 |
+| GAZELLE | YOLO pose | 15 | off | 0.380 | 0.511 | 8.3 |
+| GAZELLE-DINOv3 | YOLO pose | 15 | off | 0.364 | 0.498 | 7.7 |
 
-- The gaze model matters most: PaGE beats GAZELLE and GAZELLE-DINOv3 by about 0.1 κ in all 12 sessions.
-- The face detector barely affects agreement (≤0.012 κ) but strongly affects speed: SCRFD is fastest, RetinaFace slowest. MediaPipe detects almost no faces in this wide-angle footage (99.6% of head boxes fall back to pose keypoints), so its rows effectively show that head boxes from pose keypoints work as well as detected faces.
-- 15 FPS gives the same agreement as every frame; 1 FPS keeps over 90% of it at about real-time speed.
-- Agreement is much higher for the person facing the camera (κ 0.68) than for people seen from the side (κ ≈ 0.38).
+- The gaze model matters most: PaGE beats GAZELLE and GAZELLE-DINOv3 by 0.12-0.14 κ in all 12 sessions.
+- Head boxes from pose keypoints (`yolo-pose`) work as well as detected faces (all four within 0.011 κ) and need no extra model. Face detectors only add time; RetinaFace and MediaPipe are the slowest.
+- 10 FPS gives the same agreement as 15 FPS and as every frame, and is about 15% faster; 1 FPS keeps about 90% of it.
+- Gaze point smoothing (default 0.1 s) adds about 0.02 κ and cuts label switches from 69 to 39 per minute, close to the 35 of the human annotators.
+- Rendering videos adds about 1.8 minutes per session for gaze points (`point`) and 5.5 minutes with per-person heatmaps (`both`).
+- Agreement is much higher for the person facing the camera (κ 0.72) than for people seen from the side (κ ≈ 0.40).
 
 ## Speed Tips
 - Use `cuda:*` on NVIDIA GPUs, or `mps` on Apple Silicon when available.

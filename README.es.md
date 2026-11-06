@@ -208,21 +208,26 @@ La UI expone estos ajustes de tracker desde [`config/botsort.yaml`](config/botso
 - `appearance_thresh`
 
 ## Evaluación comparativa
-Comparamos configuraciones en 12 sesiones del [Chiba Three-party Conversation Corpus](https://research.nii.ac.jp/src/en/Chiba3Party.html) (tres participantes sentados, una cámara gran angular, 720x480, 9,4 minutos por sesión) frente a anotaciones humanas de la mirada. La etiqueta de cada participante en cada fotograma es el otro participante al que mira (mirada a su rostro) o *none*. Los tiempos son medianas por sesión en una NVIDIA GeForce RTX 3090 e incluyen detección de rostros, estimación de la mirada y exportación; el seguimiento de personas (común a todas las configuraciones) tardó otros 7,0 minutos.
+Comparamos configuraciones en 12 sesiones del [Chiba Three-party Conversation Corpus](https://research.nii.ac.jp/src/en/Chiba3Party.html) (tres participantes sentados, una cámara gran angular, 720x480, 9,4 minutos por sesión) frente a anotaciones humanas de la mirada. La etiqueta de cada participante en cada fotograma es el otro participante al que mira (mirada a su rostro) o *none*; se excluyen los fotogramas que los anotadores marcaron como desplazamientos de la mirada. Los tiempos son medianas por sesión en una NVIDIA GeForce RTX 3090 para todo el proceso, incluido el seguimiento de personas (3,4 minutos), sin renderizar vídeos. Las cajas de cabeza `YOLO pose` se obtienen de los puntos clave de pose (`yolo-pose`); las demás, de un detector de rostros.
 
-| Modelo de mirada | Detector de rostros | FPS | κ de Cohen | F1 macro | Tiempo (min) |
-|---|---|---|---|---|---|
-| PaGE | SCRFD | 1 | 0.435 | 0.569 | 9.9 |
-| PaGE | SCRFD | 15 | 0.471 | 0.601 | 23.2 |
-| PaGE | MediaPipe | 15 | **0.483** | **0.610** | 25.2 |
-| PaGE | RetinaFace | 29.97 | 0.472 | 0.602 | 65.4 |
-| GAZELLE | SCRFD | 15 | 0.364 | 0.504 | 22.0 |
-| GAZELLE-DINOv3 | SCRFD | 15 | 0.353 | 0.500 | 17.3 |
+| Modelo de mirada | Cajas de cabeza | FPS | Suavizado del punto | κ de Cohen | F1 macro | Tiempo (min) |
+|---|---|---|---|---|---|---|
+| PaGE | YOLO pose | 1 | sí | 0.463 | 0.594 | 5.3 |
+| PaGE | YOLO pose | 10 | sí | **0.522** | 0.642 | 8.5 |
+| PaGE | YOLO pose | 15 | sí | **0.522** | **0.643** | 9.9 |
+| PaGE | YOLO pose | 15 | no | 0.504 | 0.617 | 9.9 |
+| PaGE | SCRFD | 15 | no | 0.499 | 0.613 | 10.9 |
+| PaGE | RetinaFace | 15 | no | 0.497 | 0.610 | 15.6 |
+| PaGE | MediaPipe | 15 | no | 0.494 | 0.606 | 18.1 |
+| GAZELLE | YOLO pose | 15 | no | 0.380 | 0.511 | 8.3 |
+| GAZELLE-DINOv3 | YOLO pose | 15 | no | 0.364 | 0.498 | 7.7 |
 
-- El modelo de mirada es lo más importante: PaGE supera a GAZELLE y GAZELLE-DINOv3 en unos 0,1 de κ en las 12 sesiones.
-- El detector de rostros apenas afecta a la concordancia (≤0,012 de κ), pero sí mucho a la velocidad: SCRFD es el más rápido y RetinaFace el más lento. MediaPipe casi no detecta rostros en este vídeo gran angular (el 99,6 % de las cajas de cabeza se obtienen de los puntos clave de pose), por lo que sus filas muestran en la práctica que las cajas de cabeza derivadas de la pose funcionan tan bien como los rostros detectados.
-- 15 FPS da la misma concordancia que procesar todos los fotogramas; 1 FPS conserva más del 90 % a velocidad casi en tiempo real.
-- La concordancia es mucho mayor para la persona de frente a la cámara (κ 0,68) que para las vistas de lado (κ ≈ 0,38).
+- El modelo de mirada es lo más importante: PaGE supera a GAZELLE y GAZELLE-DINOv3 en 0,12-0,14 de κ en las 12 sesiones.
+- Las cajas de cabeza derivadas de los puntos clave de pose (`yolo-pose`) funcionan tan bien como los rostros detectados (las cuatro opciones quedan a menos de 0,011 de κ) y no necesitan otro modelo. Los detectores de rostros solo añaden tiempo; RetinaFace y MediaPipe son los más lentos.
+- 10 FPS da la misma concordancia que 15 FPS y que procesar todos los fotogramas, y es un 15 % más rápido; 1 FPS conserva alrededor del 90 %.
+- El suavizado del punto de mirada (0,1 s por defecto) añade unos 0,02 de κ y reduce los cambios de etiqueta de 69 a 39 por minuto, cerca de los 35 de los anotadores humanos.
+- Renderizar vídeos añade unos 1,8 minutos por sesión con los puntos de mirada (`point`) y 5,5 minutos con los mapas de calor por persona (`both`).
+- La concordancia es mucho mayor para la persona de frente a la cámara (κ 0,72) que para las vistas de lado (κ ≈ 0,40).
 
 ## Consejos de velocidad
 - Usa `cuda:*` en GPU NVIDIA, o `mps` en Apple Silicon cuando esté disponible.
