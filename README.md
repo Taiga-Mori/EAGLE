@@ -20,7 +20,7 @@ EAGLE is a Streamlit-based gaze annotation support tool for image and video anal
 
 - Person tracking with YOLO pose
 - Non-person object tracking with YOLO detection
-- Face detection with RetinaFace by default, with SCRFD and MediaPipe also available
+- Face detection with SCRFD by default, with RetinaFace and MediaPipe also available, or head boxes from pose keypoints
 - Gaze heatmap estimation with PaGE by default, with GAZELLE and GAZELLE-DINOv3 also available
 - Off-screen direction estimation with GaT by default, with L2CS-Net and MobileOne also available
 - CSV export plus annotated image/video export
@@ -153,7 +153,7 @@ Output directory behavior:
 - `Object detection backend`
   - Selects the YOLO26 detection backend (`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l`, or `yolo26x`). Downloaded weights are kept in `~/.EAGLE/` for reuse.
 - `Face detection backend`
-  - `retinaface` by default, `scrfd` for SCRFD, `mediapipe` when you want to use MediaPipe, or `yolo-pose` to skip face detection and derive head boxes from the YOLO pose keypoints (nose, eyes, ears). `yolo-pose` is the fastest and worked as well as detected faces in our benchmark. `retinaface` and `mediapipe` run on an enlarged crop around each person's pose-estimated head, which finds small faces in wide shots and is faster than detecting on the whole frame; `scrfd` runs on the whole frame.
+  - `scrfd` (SCRFD) by default, `retinaface` for RetinaFace, `mediapipe` when you want to use MediaPipe, or `yolo-pose` to skip face detection and derive head boxes from the YOLO pose keypoints (nose, eyes, ears). `yolo-pose` is the fastest and worked as well as detected faces in our benchmark. `retinaface` and `mediapipe` run on an enlarged crop around each person's pose-estimated head, which finds small faces in wide shots and is faster than detecting on the whole frame; `scrfd` runs on the whole frame.
 - `Gaze detection backend`
   - `page_vitb` (PaGE, DINOv3 ViT-B) by default, `gazelle` (official GAZELLE pretrained model, DINOv2 ViT-L), `gazelle_dinov3_vitb16` (GAZELLE-DINOv3, DINOv3 ViT-B), or custom fine-tuned GAZELLE models placed in `~/.EAGLE/custom/gaze/`.
 - `Head pose detection backend`
@@ -187,9 +187,9 @@ Output directory behavior:
 - `Face smoothing window`
   - Smoothing window for interpolated face boxes.
 - `Gaze point smoothing (seconds, 0=disabled)`
-  - Videos only, 0.1 by default. Each person's gaze point is smoothed over time with a centered Gaussian filter whose standard deviation is this length, before gaze targets are decided. Being centered, it removes brief jumps without delaying gaze shifts. On our benchmark it raised Cohen's κ by about 0.02 and halved the number of label switches, close to the rate in the human annotation; causal filters (exponential smoothing, One Euro) and label-level smoothing did not help. The rendered videos, `gaze.csv`, and `annotation.csv` all use the smoothed points. Changing it reuses the cached heatmaps, so the gaze model does not run again.
+  - Videos only, 0.1 by default. Each person's gaze point is smoothed over time with a centered Gaussian filter whose standard deviation is this length, before gaze targets are decided. Being centered, it removes brief jumps without delaying gaze shifts. On our benchmark it raised macro-F1 by about 0.02 and Cohen's κ by 0.01-0.02, and cut label switches by a third to a half, close to the rate in the human annotation; causal filters (exponential smoothing, One Euro) and label-level smoothing did not help. The rendered videos, `gaze.csv`, and `annotation.csv` all use the smoothed points. Changing it reuses the cached heatmaps, so the gaze model does not run again.
 - `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
-  - For videos only. Each stage runs at the selected target FPS and then writes its own intermediate output. Every stage defaults to 15 FPS (or the video FPS if it is lower), which gave the same agreement as processing every frame in our benchmark.
+  - For videos only. Each stage runs at the selected target FPS and then writes its own intermediate output. Every stage defaults to 10 FPS (or the video FPS if it is lower), which gave the same agreement as processing every frame in our benchmark.
 
 Important:
 
@@ -214,6 +214,7 @@ We compared configurations on 12 sessions of the [Chiba Three-party Conversation
 
 | Gaze model | Head boxes | FPS | Gaze point smoothing | Cohen's κ | Macro-F1 | Time (min) |
 |---|---|---|---|---|---|---|
+| PaGE | SCRFD | 10 (default) | on | 0.512 | 0.635 | 9.1 |
 | PaGE | YOLO pose | 1 | on | 0.463 | 0.594 | 5.3 |
 | PaGE | YOLO pose | 10 | on | **0.522** | 0.642 | 8.5 |
 | PaGE | YOLO pose | 15 | on | **0.522** | **0.643** | 9.9 |
@@ -227,9 +228,17 @@ We compared configurations on 12 sessions of the [Chiba Three-party Conversation
 - The gaze model matters most: PaGE beats GAZELLE and GAZELLE-DINOv3 by 0.12-0.14 κ in all 12 sessions.
 - Head boxes from pose keypoints (`yolo-pose`) work as well as detected faces (all four within 0.011 κ) and need no extra model. Face detectors only add time; RetinaFace and MediaPipe are the slowest.
 - 10 FPS gives the same agreement as 15 FPS and as every frame, and is about 15% faster; 1 FPS keeps about 90% of it.
-- Gaze point smoothing (default 0.1 s) adds about 0.02 κ and cuts label switches from 69 to 39 per minute, close to the 35 of the human annotators.
+- Gaze point smoothing (default 0.1 s) adds about 0.02 macro-F1 and 0.01-0.02 κ, mainly by keeping short *none* intervals intact, and cuts label switches from 56 to 36 per minute with the default settings, close to the 35 of the human annotators.
 - Rendering videos adds about 1.8 minutes per session for gaze points (`point`) and 5.5 minutes with per-person heatmaps (`both`).
-- Agreement is much higher for the person facing the camera (κ 0.72) than for people seen from the side (κ ≈ 0.40).
+- Agreement is much higher for the person facing the camera than for people seen from the side. With the default settings:
+
+| Participant | Cohen's κ | Macro-F1 |
+|---|---|---|
+| A (left, seen from the side) | 0.388 | 0.546 |
+| B (middle, facing the camera) | 0.734 | 0.811 |
+| C (right, seen from the side) | 0.413 | 0.547 |
+
+  When A or C look at neither of the others, about half of these frames are labeled as looking at B, whose head lies on their line of sight in the image; EAGLE labels *none* in 16% (A) and 9% (C) of frames, against 40% and 35% in the human annotation.
 
 ## Speed Tips
 - Use `cuda:*` on NVIDIA GPUs, or `mps` on Apple Silicon when available.

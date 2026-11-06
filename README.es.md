@@ -19,7 +19,7 @@ EAGLE es una herramienta de apoyo para anotación de mirada, basada en Streamlit
 
 - Seguimiento de personas con YOLO pose
 - Seguimiento de objetos no humanos con YOLO detection
-- Detección de rostros con RetinaFace por defecto, con SCRFD y MediaPipe también disponibles
+- Detección de rostros con SCRFD por defecto, con RetinaFace y MediaPipe también disponibles, o cajas de cabeza a partir de los puntos clave de pose
 - Estimación de mapas de calor de mirada con PaGE por defecto, con GAZELLE y GAZELLE-DINOv3 también disponibles
 - Estimación de dirección fuera de pantalla con GaT por defecto, con L2CS-Net y MobileOne también disponibles
 - Exportación CSV y exportación de imágenes/videos anotados
@@ -152,7 +152,7 @@ Comportamiento del directorio de salida:
 - `Object detection backend`
   - Selecciona el backend YOLO26 detection (`yolo26n`, `yolo26s`, `yolo26m`, `yolo26l` o `yolo26x`). Los pesos descargados se conservan en `~/.EAGLE/` para reutilizarlos.
 - `Face detection backend`
-  - `retinaface` por defecto, `scrfd` para SCRFD, `mediapipe` si quieres usar MediaPipe, o `yolo-pose` para omitir la detección de rostros y obtener las cajas de cabeza a partir de los puntos clave de pose de YOLO (nariz, ojos, orejas). `yolo-pose` es la opción más rápida y funcionó igual de bien que los rostros detectados en nuestra evaluación. `retinaface` y `mediapipe` buscan rostros en un recorte ampliado alrededor de la cabeza de cada persona, estimada a partir de la pose; así detectan rostros pequeños en planos amplios y son más rápidos que sobre el fotograma completo. `scrfd` trabaja sobre el fotograma completo.
+  - `scrfd` (SCRFD) por defecto, `retinaface` para RetinaFace, `mediapipe` si quieres usar MediaPipe, o `yolo-pose` para omitir la detección de rostros y obtener las cajas de cabeza a partir de los puntos clave de pose de YOLO (nariz, ojos, orejas). `yolo-pose` es la opción más rápida y funcionó igual de bien que los rostros detectados en nuestra evaluación. `retinaface` y `mediapipe` buscan rostros en un recorte ampliado alrededor de la cabeza de cada persona, estimada a partir de la pose; así detectan rostros pequeños en planos amplios y son más rápidos que sobre el fotograma completo. `scrfd` trabaja sobre el fotograma completo.
 - `Gaze detection backend`
   - `page_vitb` (PaGE, DINOv3 ViT-B) por defecto, `gazelle` (modelo preentrenado oficial de GAZELLE, DINOv2 ViT-L), `gazelle_dinov3_vitb16` (GAZELLE-DINOv3, DINOv3 ViT-B) o modelos GAZELLE ajustados colocados en `~/.EAGLE/custom/gaze/`.
 - `Head pose detection backend`
@@ -186,9 +186,9 @@ Comportamiento del directorio de salida:
 - `Face smoothing window`
   - Ventana de suavizado para cajas de rostro interpoladas.
 - `Gaze point smoothing (seconds, 0=disabled)`
-  - Solo para vídeos, 0,1 por defecto. Antes de decidir los objetivos de mirada, el punto de mirada de cada persona se suaviza en el tiempo con un filtro gaussiano centrado cuya desviación estándar es esta duración. Al ser centrado, elimina saltos breves sin retrasar los cambios de mirada. En nuestra evaluación elevó la κ de Cohen en unos 0,02 y redujo a la mitad los cambios de etiqueta, cerca de la frecuencia de la anotación humana; los filtros causales (suavizado exponencial, One Euro) y el suavizado de etiquetas no ayudaron. Los vídeos renderizados, `gaze.csv` y `annotation.csv` usan los puntos suavizados. Al cambiar este valor se reutilizan los mapas de calor en caché, sin volver a ejecutar el modelo de mirada.
+  - Solo para vídeos, 0,1 por defecto. Antes de decidir los objetivos de mirada, el punto de mirada de cada persona se suaviza en el tiempo con un filtro gaussiano centrado cuya desviación estándar es esta duración. Al ser centrado, elimina saltos breves sin retrasar los cambios de mirada. En nuestra evaluación elevó la F1 macro en unos 0,02 y el κ de Cohen en 0,01-0,02, y redujo entre un tercio y la mitad los cambios de etiqueta, cerca de la frecuencia de la anotación humana; los filtros causales (suavizado exponencial, One Euro) y el suavizado de etiquetas no ayudaron. Los vídeos renderizados, `gaze.csv` y `annotation.csv` usan los puntos suavizados. Al cambiar este valor se reutilizan los mapas de calor en caché, sin volver a ejecutar el modelo de mirada.
 - `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
-  - Solo videos. Cada etapa se ejecuta con el target FPS seleccionado y escribe su propia salida intermedia. Todas las etapas usan 15 FPS por defecto (o el FPS del vídeo si es menor), lo que dio la misma concordancia que procesar todos los fotogramas en nuestra evaluación.
+  - Solo videos. Cada etapa se ejecuta con el target FPS seleccionado y escribe su propia salida intermedia. Todas las etapas usan 10 FPS por defecto (o el FPS del vídeo si es menor), lo que dio la misma concordancia que procesar todos los fotogramas en nuestra evaluación.
 
 Importante:
 
@@ -212,6 +212,7 @@ Comparamos configuraciones en 12 sesiones del [Chiba Three-party Conversation Co
 
 | Modelo de mirada | Cajas de cabeza | FPS | Suavizado del punto | κ de Cohen | F1 macro | Tiempo (min) |
 |---|---|---|---|---|---|---|
+| PaGE | SCRFD | 10 (por defecto) | sí | 0.512 | 0.635 | 9.1 |
 | PaGE | YOLO pose | 1 | sí | 0.463 | 0.594 | 5.3 |
 | PaGE | YOLO pose | 10 | sí | **0.522** | 0.642 | 8.5 |
 | PaGE | YOLO pose | 15 | sí | **0.522** | **0.643** | 9.9 |
@@ -225,9 +226,17 @@ Comparamos configuraciones en 12 sesiones del [Chiba Three-party Conversation Co
 - El modelo de mirada es lo más importante: PaGE supera a GAZELLE y GAZELLE-DINOv3 en 0,12-0,14 de κ en las 12 sesiones.
 - Las cajas de cabeza derivadas de los puntos clave de pose (`yolo-pose`) funcionan tan bien como los rostros detectados (las cuatro opciones quedan a menos de 0,011 de κ) y no necesitan otro modelo. Los detectores de rostros solo añaden tiempo; RetinaFace y MediaPipe son los más lentos.
 - 10 FPS da la misma concordancia que 15 FPS y que procesar todos los fotogramas, y es un 15 % más rápido; 1 FPS conserva alrededor del 90 %.
-- El suavizado del punto de mirada (0,1 s por defecto) añade unos 0,02 de κ y reduce los cambios de etiqueta de 69 a 39 por minuto, cerca de los 35 de los anotadores humanos.
+- El suavizado del punto de mirada (0,1 s por defecto) añade unos 0,02 de F1 macro y 0,01-0,02 de κ, sobre todo porque los intervalos cortos de *none* dejan de fragmentarse, y con la configuración por defecto reduce los cambios de etiqueta de 56 a 36 por minuto, cerca de los 35 de los anotadores humanos.
 - Renderizar vídeos añade unos 1,8 minutos por sesión con los puntos de mirada (`point`) y 5,5 minutos con los mapas de calor por persona (`both`).
-- La concordancia es mucho mayor para la persona de frente a la cámara (κ 0,72) que para las vistas de lado (κ ≈ 0,40).
+- La concordancia es mucho mayor para la persona de frente a la cámara que para las vistas de lado. Con la configuración por defecto:
+
+| Participante | κ de Cohen | F1 macro |
+|---|---|---|
+| A (izquierda, de lado) | 0.388 | 0.546 |
+| B (centro, de frente a la cámara) | 0.734 | 0.811 |
+| C (derecha, de lado) | 0.413 | 0.547 |
+
+  Cuando A o C no miran a ninguno de los otros, cerca de la mitad de esos fotogramas se etiquetan como mirando a B, cuya cabeza queda en su línea de mirada en la imagen; EAGLE etiqueta *none* en el 16 % (A) y el 9 % (C) de los fotogramas, frente al 40 % y el 35 % de la anotación humana.
 
 ## Consejos de velocidad
 - Usa `cuda:*` en GPU NVIDIA, o `mps` en Apple Silicon cuando esté disponible.

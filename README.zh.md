@@ -19,7 +19,7 @@ EAGLE 是一个基于 Streamlit 的视线标注辅助工具，用于图像和视
 
 - 使用 YOLO pose 进行人物跟踪
 - 使用 YOLO detection 进行非人物对象跟踪
-- 默认使用 RetinaFace 进行人脸检测，也可以选择 SCRFD 或 MediaPipe
+- 默认使用 SCRFD 进行人脸检测，也可以选择 RetinaFace 或 MediaPipe，或由姿态关键点生成头部框
 - 默认使用 PaGE 进行视线热力图估计，也可以选择 GAZELLE 或 GAZELLE-DINOv3
 - 默认使用 GaT 进行画面外方向估计，也可以选择 L2CS-Net 或 MobileOne gaze
 - CSV 导出以及带标注的图像/视频导出
@@ -152,7 +152,7 @@ venv/bin/streamlit run app.py
 - `Object detection backend`
   - 选择 YOLO26 detection backend（`yolo26n`、`yolo26s`、`yolo26m`、`yolo26l` 或 `yolo26x`）。已下载的权重会保留在 `~/.EAGLE/` 中以便复用。
 - `Face detection backend`
-  - 默认是 `retinaface`；使用 SCRFD 时选择 `scrfd`，使用 MediaPipe 时选择 `mediapipe`。选择 `yolo-pose` 时不进行人脸检测，而是由 YOLO 姿态关键点（鼻子、眼睛、耳朵）生成头部框；它速度最快，在基准测试中与检测到的人脸效果相当。`retinaface` 和 `mediapipe` 会在根据姿态估计出的每个人头部周围放大裁剪的图像上检测人脸，能检测广角画面中的小脸，并且比在整帧上检测更快；`scrfd` 在整帧上检测。
+  - 默认是 `scrfd`（SCRFD）；使用 RetinaFace 时选择 `retinaface`，使用 MediaPipe 时选择 `mediapipe`。选择 `yolo-pose` 时不进行人脸检测，而是由 YOLO 姿态关键点（鼻子、眼睛、耳朵）生成头部框；它速度最快，在基准测试中与检测到的人脸效果相当。`retinaface` 和 `mediapipe` 会在根据姿态估计出的每个人头部周围放大裁剪的图像上检测人脸，能检测广角画面中的小脸，并且比在整帧上检测更快；`scrfd` 在整帧上检测。
 - `Gaze detection backend`
   - 默认是 `page_vitb`（PaGE，DINOv3 ViT-B）；也可以选择 `gazelle`（官方 GAZELLE 预训练模型，DINOv2 ViT-L）、`gazelle_dinov3_vitb16`（GAZELLE-DINOv3，DINOv3 ViT-B），或放在 `~/.EAGLE/custom/gaze/` 中的微调 GAZELLE 模型。
 - `Head pose detection backend`
@@ -186,9 +186,9 @@ venv/bin/streamlit run app.py
 - `Face smoothing window`
   - 插值后人脸框的平滑窗口。
 - `Gaze point smoothing (seconds, 0=disabled)`
-  - 仅限视频，默认 0.1。在确定注视目标之前，用以该长度为标准差的中心高斯滤波器在时间上平滑每个人的视线点。由于是中心滤波，可以去除短暂的跳变而不延迟视线转移。在我们的基准测试中，Cohen 的 κ 提高约 0.02，标签切换次数减少约一半，接近人工标注；因果滤波器（指数平滑、One Euro）和标签层面的平滑没有效果。渲染视频、`gaze.csv` 和 `annotation.csv` 都使用平滑后的视线点。修改该值时会复用缓存的热力图，不会重新运行视线模型。
+  - 仅限视频，默认 0.1。在确定注视目标之前，用以该长度为标准差的中心高斯滤波器在时间上平滑每个人的视线点。由于是中心滤波，可以去除短暂的跳变而不延迟视线转移。在我们的基准测试中，宏平均F1提高约 0.02，Cohen 的 κ 提高 0.01-0.02，标签切换次数减少三分之一到一半，接近人工标注；因果滤波器（指数平滑、One Euro）和标签层面的平滑没有效果。渲染视频、`gaze.csv` 和 `annotation.csv` 都使用平滑后的视线点。修改该值时会复用缓存的热力图，不会重新运行视线模型。
 - `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
-  - 仅视频。每个阶段按所选 target FPS 运行，并写出自己的中间输出。所有阶段默认 15 FPS（若视频 FPS 更低则使用视频 FPS）；在我们的基准测试中，这与逐帧处理的一致性相同。
+  - 仅视频。每个阶段按所选 target FPS 运行，并写出自己的中间输出。所有阶段默认 10 FPS（若视频 FPS 更低则使用视频 FPS）；在我们的基准测试中，这与逐帧处理的一致性相同。
 
 重要：
 
@@ -212,6 +212,7 @@ UI 暴露了 [`config/botsort.yaml`](config/botsort.yaml) 中的这些 tracker �
 
 | 视线模型 | 头部框 | FPS | 视线点平滑 | Cohen's κ | 宏平均F1 | 时间（分钟） |
 |---|---|---|---|---|---|---|
+| PaGE | SCRFD | 10（默认） | 开 | 0.512 | 0.635 | 9.1 |
 | PaGE | YOLO pose | 1 | 开 | 0.463 | 0.594 | 5.3 |
 | PaGE | YOLO pose | 10 | 开 | **0.522** | 0.642 | 8.5 |
 | PaGE | YOLO pose | 15 | 开 | **0.522** | **0.643** | 9.9 |
@@ -225,9 +226,17 @@ UI 暴露了 [`config/botsort.yaml`](config/botsort.yaml) 中的这些 tracker �
 - 视线模型影响最大：PaGE 在全部12个会话中都比 GAZELLE 和 GAZELLE-DINOv3 高0.12-0.14 κ。
 - 由姿态关键点生成的头部框（`yolo-pose`）与检测到的人脸效果相当（四种方式相差不超过0.011 κ），且无需额外模型。人脸检测器只会增加时间，其中 RetinaFace 和 MediaPipe 最慢。
 - 10 FPS 与 15 FPS 及逐帧处理的一致性相同，且快约15%；1 FPS 保留了约90%的一致性。
-- 视线点平滑（默认0.1秒）使 κ 提高约0.02，并将标签切换从每分钟69次减少到39次，接近人工标注的35次。
+- 视线点平滑（默认0.1秒）使宏平均F1提高约0.02、κ 提高0.01-0.02，主要是因为短暂的 *none* 区间不再被打断；在默认设置下，标签切换从每分钟56次减少到36次，接近人工标注的35次。
 - 渲染视频时，每个会话在绘制视线点（`point`）时约增加1.8分钟，同时输出每人热图（`both`）时约增加5.5分钟。
-- 正对摄像机的人（κ 0.72）的一致性远高于从侧面拍到的人（κ 约0.40）。
+- 正对摄像机的人的一致性远高于从侧面拍到的人。默认设置下的结果：
+
+| 参与者 | Cohen's κ | 宏平均F1 |
+|---|---|---|
+| A（左侧，侧面） | 0.388 | 0.546 |
+| B（中间，正对摄像机） | 0.734 | 0.811 |
+| C（右侧，侧面） | 0.413 | 0.547 |
+
+  当 A 或 C 没有看另外两人时，约一半的帧被判为在看 B，因为在画面中 B 的头部位于其视线延长线上；EAGLE 判为 *none* 的比例在 A 为16%、C 为9%，远低于人工标注的40%和35%。
 
 ## 加速提示
 - 在 NVIDIA GPU 上使用 `cuda:*`；在 Apple Silicon 上如可用则使用 `mps`。

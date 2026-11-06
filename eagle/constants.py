@@ -126,7 +126,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".wmv", ".webm"}
 VISUALIZATION_MODES = {"point", "heatmap", "both"}
 GAZE_POINT_METHODS = {"argmax", "center_of_mass", "peak_centroid", "peak_region_centroid", "soft_argmax"}
 FACE_DETECTION_BACKENDS = {"mediapipe", "retinaface", "scrfd", "yolo-pose"}
-DEFAULT_FACE_DETECTION_BACKEND = "retinaface"
+DEFAULT_FACE_DETECTION_BACKEND = "scrfd"
 # Head-crop face detection: a square of FACE_CROP_HEAD_SCALE x the pose-estimated head size around each
 # person's head is resized to FACE_CROP_SIZE pixels, so faces reach the detector at about a quarter of that.
 # Profile faces need this much context and resolution to be detected as often as in whole-frame detection.
@@ -158,7 +158,7 @@ DEFAULT_GAZE_DETECTION_BACKEND = "page_vitb"
 HEAD_POSE_DETECTION_BACKENDS = {"l2cs", "mobileone", "gat"}
 DEFAULT_HEAD_POSE_DETECTION_BACKEND = "gat"
 # Default sampling rate of each pipeline stage, capped at the video FPS.
-DEFAULT_TARGET_FPS = 15.0
+DEFAULT_TARGET_FPS = 10.0
 
 
 def discover_custom_gaze_models(custom_models_dir) -> dict[str, str]:
