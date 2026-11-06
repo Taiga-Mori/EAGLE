@@ -133,6 +133,30 @@ def _suppress_native_stderr():
             os.close(saved_stderr_fd)
 
 
+def _prefer_cached_torch_hub_repos() -> None:
+    """Make torch.hub use a cached repo without asking GitHub for its default branch.
+
+    For "owner/repo" without a ref, torch.hub checks on GitHub whether the branch is main or master on
+    every load, and only falls back to the cache when there is no connection at all: a transient
+    server error (e.g. 504) made loading an already downloaded GAZELLE fail. GAZELLE also loads DINOv2
+    through torch.hub internally, so this is patched in torch.hub rather than at EAGLE's call sites.
+    """
+    original = torch.hub._parse_repo_info
+    if getattr(original, "eagle_prefers_cache", False):
+        return
+
+    def parse_repo_info(github: str):
+        if ":" not in github:
+            owner, name = github.split("/")
+            for ref in ("main", "master"):
+                if os.path.isdir(os.path.join(torch.hub.get_dir(), f"{owner}_{name}_{ref}")):
+                    return owner, name, ref
+        return original(github)
+
+    parse_repo_info.eagle_prefers_cache = True
+    torch.hub._parse_repo_info = parse_repo_info
+
+
 class ModelManager:
     """Download, cache, and serve external ML models."""
 
@@ -180,6 +204,7 @@ class ModelManager:
         except Exception:
             self._ssl_context = None
         torch.hub.set_dir(str(self.paths.torch_hub_dir))
+        _prefer_cached_torch_hub_repos()
 
     def _ensure_torch_attention_compat(self) -> None:
         """Provide torch<2.0 compatibility for models expecting SDP attention."""

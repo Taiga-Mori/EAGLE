@@ -92,7 +92,7 @@ class EAGLE:
         person_min_duration_ratio: float = 0.5,
         object_smoothing_window: int = 5,
         face_smoothing_window: int = 5,
-        gaze_label_smoothing_sec: float = 0.3,
+        gaze_point_smoothing_sec: float = 0.1,
         gaze_half_precision: bool = True,
         render_video: bool = True,
         selected_object_classes: list[str] | None = None,
@@ -136,7 +136,7 @@ class EAGLE:
             person_min_duration_ratio=person_min_duration_ratio,
             object_smoothing_window=object_smoothing_window,
             face_smoothing_window=face_smoothing_window,
-            gaze_label_smoothing_sec=gaze_label_smoothing_sec,
+            gaze_point_smoothing_sec=gaze_point_smoothing_sec,
             gaze_half_precision=gaze_half_precision,
             render_video=render_video,
             selected_object_classes=selected_object_classes,
@@ -283,6 +283,7 @@ class EAGLE:
             reuse_cached_gaze=config.reuse_cached_gaze,
             progress_bar=progress_bar,
             render_video=config.render_video,
+            gaze_point_smoothing_sec=config.gaze_point_smoothing_sec,
         )
 
     def make_video(self):
@@ -309,7 +310,6 @@ class EAGLE:
             config.person_part_distance_scale,
             config.person_part_min_conf,
             config.selected_object_classes,
-            config.gaze_label_smoothing_sec,
         )
 
     def run_all(self, progress_bar=None) -> dict[str, Any]:

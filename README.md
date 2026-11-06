@@ -186,8 +186,8 @@ Output directory behavior:
   - Smoothing window for tracked object boxes.
 - `Face smoothing window`
   - Smoothing window for interpolated face boxes.
-- `Gaze label smoothing (seconds, 0=disabled)`
-  - Videos only. Each frame's gaze target in `annotation.csv` is replaced by the most frequent target in a centered window of this length (default 0.3 s), which removes brief flickers. Gaze points and heatmaps themselves are not smoothed.
+- `Gaze point smoothing (seconds, 0=disabled)`
+  - Videos only, 0.1 by default. Each person's gaze point is smoothed over time with a centered Gaussian filter whose standard deviation is this length, before gaze targets are decided. Being centered, it removes brief jumps without delaying gaze shifts. On our benchmark it raised Cohen's κ by about 0.02 and halved the number of label switches, close to the rate in the human annotation; causal filters (exponential smoothing, One Euro) and label-level smoothing did not help. The rendered videos, `gaze.csv`, and `annotation.csv` all use the smoothed points. Changing it reuses the cached heatmaps, so the gaze model does not run again.
 - `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
   - For videos only. Each stage runs at the selected target FPS and then writes its own intermediate output. Every stage defaults to 15 FPS (or the video FPS if it is lower), which gave the same agreement as processing every frame in our benchmark.
 
@@ -253,7 +253,7 @@ Current outputs can include:
 - `.faces_meta.json`
   - Metadata used to validate face cache reuse
 - `gaze.csv`
-  - Gaze points, in/out probabilities, and off-screen direction fields (interpolated, not smoothed)
+  - Gaze points (interpolated and smoothed, see `Gaze point smoothing`), in/out probabilities, and off-screen direction fields
 - `gaze_heatmaps.npz`
   - Cached gaze heatmaps of the sampled frames (float16; the frames in between are re-interpolated when the cache is reused)
 - `.gaze_meta.json`

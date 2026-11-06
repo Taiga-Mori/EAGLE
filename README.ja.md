@@ -185,8 +185,8 @@ venv/bin/streamlit run app.py
   - 追跡オブジェクトの bbox に対する平滑化窓です。
 - `Face smoothing window`
   - 補間済みの顔 bbox に対する平滑化窓です。
-- `Gaze label smoothing (seconds, 0=disabled)`
-  - 動画のみ。`annotation.csv` の各フレームの注視対象を、この長さ（既定 0.3 秒）の中心窓内で最も多い注視対象に置き換え、短いちらつきを除去します。視線点やヒートマップ自体は平滑化しません。
+- `Gaze point smoothing (seconds, 0=disabled)`
+  - 動画のみ・既定は 0.1。注視対象を決める前に、各人物の視線点を、この長さを標準偏差とする中心型のガウスフィルタで時間方向に平滑化します。中心型なので、視線の移動を遅らせずに一瞬の跳びを除けます。ベンチマークでは Cohen の κ が約 0.02 上がり、ラベルの切り替え回数が半分ほどになって人手の注釈に近づきました。因果的なフィルタ（指数平滑化、One Euro）やラベル単位の平滑化は効果がありませんでした。描画動画・`gaze.csv`・`annotation.csv` はすべて平滑化後の視線点を使います。値を変えてもキャッシュ済みのヒートマップを再利用するので、視線モデルは再実行しません。
 - `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
   - 動画のみ。各ステージを指定した target FPS で実行し、それぞれの中間生成物を書き出します。既定はすべてのステージで 15 FPS（動画の FPS の方が低ければ動画の FPS）です。ベンチマークでは全フレーム処理と同じ精度でした。
 
@@ -251,7 +251,7 @@ UI では [`config/botsort.yaml`](config/botsort.yaml) の以下の tracker 設�
 - `.faces_meta.json`
   - face cache 再利用検証用のメタデータ
 - `gaze.csv`
-  - 視線点、in/out 確率、画面外方向フィールド（補間のみで平滑化なし）
+  - 視線点（補間・平滑化済み。`Gaze point smoothing` を参照）、in/out 確率、画面外方向フィールド
 - `gaze_heatmaps.npz`
   - サンプリングしたフレームの視線ヒートマップのキャッシュ（float16。間のフレームはキャッシュ再利用時に補間し直します）
 - `.gaze_meta.json`

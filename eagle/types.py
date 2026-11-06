@@ -67,7 +67,7 @@ class PipelineConfig:
     person_min_duration_ratio: float
     object_smoothing_window: int
     face_smoothing_window: int
-    gaze_label_smoothing_sec: float
+    gaze_point_smoothing_sec: float
     gaze_half_precision: bool
     render_video: bool
     selected_object_classes: list[str]

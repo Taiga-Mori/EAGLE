@@ -2,7 +2,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections import Counter
 from pathlib import Path
 
 import cv2
@@ -234,7 +233,6 @@ class AnnotationExporter:
         person_part_distance_scale: float,
         person_part_min_conf: float,
         selected_object_classes: list[str],
-        label_smoothing_sec: float = 0.0,
     ) -> pd.DataFrame:
         context.annotation_path.parent.mkdir(parents=True, exist_ok=True)
         gaze_df = pd.read_csv(context.gaze_path)
@@ -315,12 +313,9 @@ class AnnotationExporter:
             self._write_annotation_csv(annotation_df, context)
             return annotation_df
 
-        label_window = int(round(label_smoothing_sec * context.fps)) | 1
         segments = []
         for track_id, group in target_df.groupby("track_id"):
             group = group.sort_values("frame_idx")
-            if label_window > 1:
-                group = self._smooth_track_labels(group, label_window)
             start_frame = None
             previous_frame = None
             previous_target = None
@@ -364,36 +359,6 @@ class AnnotationExporter:
         for record in df.to_dict(orient="records"):
             records_by_frame.setdefault(int(record["frame_idx"]), []).append(record)
         return records_by_frame
-
-    @classmethod
-    def _smooth_track_labels(cls, group: pd.DataFrame, window: int) -> pd.DataFrame:
-        """Mode-filter one track's frame-wise targets within each run of consecutive frames."""
-        frames = group["frame_idx"].astype(int).to_numpy()
-        targets = group["target"].astype(str).tolist()
-        smoothed: list[str] = []
-        run_start = 0
-        for index in range(1, len(frames) + 1):
-            if index == len(frames) or frames[index] != frames[index - 1] + 1:
-                smoothed.extend(cls._mode_filter(targets[run_start:index], window))
-                run_start = index
-        group = group.copy()
-        group["target"] = smoothed
-        return group
-
-    @staticmethod
-    def _mode_filter(labels: list[str], window: int) -> list[str]:
-        """Most frequent label in a centered window; ties keep the current label."""
-        half = window // 2
-        counts = Counter(labels[:half])
-        smoothed = []
-        for index, label in enumerate(labels):
-            if index + half < len(labels):
-                counts[labels[index + half]] += 1
-            if index - half - 1 >= 0:
-                counts[labels[index - half - 1]] -= 1
-            best = max(counts.values())
-            smoothed.append(label if counts[label] == best else max(counts, key=counts.__getitem__))
-        return smoothed
 
     def _write_annotation_csv(self, annotation_df: pd.DataFrame, context: MediaContext) -> None:
         annotation_df.to_csv(context.annotation_path, index=False)

@@ -170,6 +170,7 @@ class FaceGazeEstimator:
         reuse_cached_gaze: bool = False,
         progress_bar=None,
         render_video: bool = True,
+        gaze_point_smoothing_sec: float = 0.0,
     ) -> pd.DataFrame:
         object_df = self._load_scene_detections(context)
         if not context.faces_path.exists():
@@ -204,6 +205,7 @@ class FaceGazeEstimator:
                 selected_object_classes,
                 progress_bar,
                 render_video=render_video,
+                gaze_point_smoothing_sec=gaze_point_smoothing_sec,
             )
             if cached_result is not None:
                 return cached_result
@@ -247,6 +249,7 @@ class FaceGazeEstimator:
                 selected_object_classes=selected_object_classes,
                 progress_bar=progress_bar,
                 render_video=render_video,
+                gaze_point_smoothing_sec=gaze_point_smoothing_sec,
             )
 
         self._update_progress(progress_bar, 0, 1, "Saving gaze outputs...")
@@ -394,6 +397,7 @@ class FaceGazeEstimator:
         selected_object_classes: list[str],
         progress_bar=None,
         render_video: bool = True,
+        gaze_point_smoothing_sec: float = 0.0,
     ) -> dict[int, dict[int, GazePoint]]:
         sparse_gaze_by_frame: dict[int, dict[int, GazePoint]] = {}
         self._collect_sparse_gazes(
@@ -411,6 +415,7 @@ class FaceGazeEstimator:
             sparse_gaze_by_frame=sparse_gaze_by_frame,
             point_method=gaze_point_method,
         )
+        self.temporal_processor.smooth_points(dense_gaze_by_frame, gaze_point_smoothing_sec * context.fps)
         self._update_progress(progress_bar, 1, 1, "Interpolating gaze...")
         offscreen_estimates_by_frame = self._collect_offscreen_estimates_video(
             context,
@@ -971,6 +976,7 @@ class FaceGazeEstimator:
         selected_object_classes: list[str],
         progress_bar=None,
         render_video: bool = True,
+        gaze_point_smoothing_sec: float = 0.0,
     ) -> pd.DataFrame | None:
         if not context.gaze_path.exists() or not context.gaze_heatmaps_path.exists() or not context.gaze_meta_path.exists():
             return None
@@ -1020,6 +1026,8 @@ class FaceGazeEstimator:
 
         frame_width, frame_height = self._resolve_media_size(context)
         dense_gaze_by_frame = self._load_heatmaps(context, face_df, frame_width, frame_height, gaze_point_method)
+        if context.media_type == "video":
+            self.temporal_processor.smooth_points(dense_gaze_by_frame, gaze_point_smoothing_sec * context.fps)
         gaze_df = self._rebuild_gaze_df_from_dense_heatmaps(gaze_df, dense_gaze_by_frame)
         gaze_df.to_csv(context.gaze_path, index=False)
         self._write_gaze_meta(

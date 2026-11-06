@@ -185,8 +185,8 @@ venv/bin/streamlit run app.py
   - 跟踪对象框的平滑窗口。
 - `Face smoothing window`
   - 插值后人脸框的平滑窗口。
-- `Gaze label smoothing (seconds, 0=disabled)`
-  - 仅限视频。将 `annotation.csv` 中每一帧的注视目标替换为以该帧为中心、此长度（默认 0.3 秒）窗口内出现最多的注视目标，以去除短暂的抖动。视线点和热力图本身不做平滑。
+- `Gaze point smoothing (seconds, 0=disabled)`
+  - 仅限视频，默认 0.1。在确定注视目标之前，用以该长度为标准差的中心高斯滤波器在时间上平滑每个人的视线点。由于是中心滤波，可以去除短暂的跳变而不延迟视线转移。在我们的基准测试中，Cohen 的 κ 提高约 0.02，标签切换次数减少约一半，接近人工标注；因果滤波器（指数平滑、One Euro）和标签层面的平滑没有效果。渲染视频、`gaze.csv` 和 `annotation.csv` 都使用平滑后的视线点。修改该值时会复用缓存的热力图，不会重新运行视线模型。
 - `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
   - 仅视频。每个阶段按所选 target FPS 运行，并写出自己的中间输出。所有阶段默认 15 FPS（若视频 FPS 更低则使用视频 FPS）；在我们的基准测试中，这与逐帧处理的一致性相同。
 
@@ -251,7 +251,7 @@ UI 暴露了 [`config/botsort.yaml`](config/botsort.yaml) 中的这些 tracker �
 - `.faces_meta.json`
   - 用于验证 face cache 复用的元数据
 - `gaze.csv`
-  - 视线点、in/out 概率和画面外方向字段（仅插值，不做平滑）
+  - 视线点（已插值并平滑，见 `Gaze point smoothing`）、in/out 概率和画面外方向字段
 - `gaze_heatmaps.npz`
   - 采样帧的视线热力图缓存（float16；中间帧在复用缓存时重新插值）
 - `.gaze_meta.json`

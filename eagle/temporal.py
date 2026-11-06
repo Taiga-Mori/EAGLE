@@ -1,9 +1,11 @@
 import bisect
+import dataclasses
 import math
 import cv2
 import numpy as np
 import pandas as pd
 import json
+from scipy.ndimage import gaussian_filter1d
 
 from .constants import OBJECT_COLUMNS
 from .types import FaceDetection, GazePoint
@@ -518,7 +520,7 @@ class PersonTrackPostprocessor:
 
 
 class GazeTemporalProcessor:
-    """Interpolate sparse face and gaze results over time and smooth face boxes."""
+    """Interpolate sparse face and gaze results over time, and smooth face boxes and gaze points."""
 
     def __init__(self, point_resolver: GazePointResolver | None = None) -> None:
         self.point_resolver = point_resolver or GazePointResolver()
@@ -632,6 +634,35 @@ class GazeTemporalProcessor:
                 dense_gaze_by_frame[frame_idx][track_id] = gaze
 
         return dense_gaze_by_frame
+
+    def smooth_points(self, dense_gaze_by_frame: dict[int, dict[int, GazePoint]], sigma_frames: float) -> None:
+        """Gaussian-smooth each person's gaze point over time, in place.
+
+        The filter is centered, so it removes single-frame jumps without delaying gaze shifts; on the Chiba
+        corpus a sigma of 0.1 s raised agreement with the human annotation and halved the label switches,
+        while causal filters (EMA, One Euro) lowered it. It runs over each run of consecutive frames.
+        """
+        if sigma_frames <= 0:
+            return
+        frames_by_track: dict[str, list[int]] = {}
+        for frame_idx in sorted(dense_gaze_by_frame):
+            for track_id in dense_gaze_by_frame[frame_idx]:
+                frames_by_track.setdefault(track_id, []).append(frame_idx)
+        for track_id, frames in frames_by_track.items():
+            frames_array = np.asarray(frames)
+            for run in np.split(frames_array, np.flatnonzero(np.diff(frames_array) != 1) + 1):
+                if len(run) < 2:
+                    continue
+                points = np.array(
+                    [[dense_gaze_by_frame[f][track_id].x_gaze, dense_gaze_by_frame[f][track_id].y_gaze] for f in run],
+                    dtype=float,
+                )
+                smoothed = np.rint(gaussian_filter1d(points, sigma_frames, axis=0, mode="nearest")).astype(int)
+                for frame_idx, (x, y) in zip(run, smoothed):
+                    # Replace rather than mutate: interpolation can share one GazePoint between frames.
+                    dense_gaze_by_frame[frame_idx][track_id] = dataclasses.replace(
+                        dense_gaze_by_frame[frame_idx][track_id], x_gaze=int(x), y_gaze=int(y)
+                    )
 
     def _interpolate_track(
         self,

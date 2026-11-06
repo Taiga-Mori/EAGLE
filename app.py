@@ -495,7 +495,7 @@ def main() -> None:
             person_min_duration_ratio = float(st.session_state.get("person_min_duration_ratio", 0.5))
             object_smoothing_window = int(st.session_state.get("object_smoothing_window", 5))
             face_smoothing_window = int(st.session_state.get("face_smoothing_window", 5))
-            gaze_label_smoothing_sec = float(st.session_state.get("gaze_label_smoothing_sec", 0.3))
+            gaze_point_smoothing_sec = float(st.session_state.get("gaze_point_smoothing_sec", 0.1))
             person_part_distance_scale = float(st.session_state.get("person_part_distance_scale", 0.10))
             person_part_min_conf = float(st.session_state.get("person_part_min_conf", 0.0))
             face_fallback_min_size_scale = float(st.session_state.get("face_fallback_min_size_scale", 1.0))
@@ -836,14 +836,14 @@ def main() -> None:
                         gaze_target_fps = fps_input("Gaze frame FPS", "gaze_target_fps")
                     with col_head_fps:
                         head_pose_target_fps = fps_input("Head pose frame FPS", "head_pose_target_fps")
-                gaze_label_smoothing_sec = float(
+                gaze_point_smoothing_sec = float(
                     st.number_input(
-                        "Gaze label smoothing (seconds, 0=disabled)",
+                        "Gaze point smoothing (seconds, 0=disabled)",
                         min_value=0.0,
-                        step=0.1,
-                        value=float(st.session_state.get("gaze_label_smoothing_sec", 0.3)),
-                        help="Videos only. Replaces each frame's gaze target in the ELAN output with the most frequent "
-                        "target in a centered window of this length, removing brief flickers.",
+                        step=0.05,
+                        value=float(st.session_state.get("gaze_point_smoothing_sec", 0.1)),
+                        help="Videos only. Standard deviation of a centered Gaussian filter applied to each person's "
+                        "gaze point over time; it removes brief jumps without delaying gaze shifts.",
                     )
                 )
                 visualization_mode = st.selectbox(
@@ -924,7 +924,7 @@ def main() -> None:
         st.session_state.person_min_duration_ratio = person_min_duration_ratio
         st.session_state.object_smoothing_window = object_smoothing_window
         st.session_state.face_smoothing_window = face_smoothing_window
-        st.session_state.gaze_label_smoothing_sec = gaze_label_smoothing_sec
+        st.session_state.gaze_point_smoothing_sec = gaze_point_smoothing_sec
         st.session_state.person_target_fps = person_target_fps
         st.session_state.object_target_fps = object_target_fps
         st.session_state.face_target_fps = face_target_fps
@@ -1002,7 +1002,7 @@ def main() -> None:
                 person_min_duration_ratio=st.session_state.person_min_duration_ratio,
                 object_smoothing_window=st.session_state.object_smoothing_window,
                 face_smoothing_window=st.session_state.face_smoothing_window,
-                gaze_label_smoothing_sec=st.session_state.gaze_label_smoothing_sec,
+                gaze_point_smoothing_sec=st.session_state.gaze_point_smoothing_sec,
                 selected_object_classes=st.session_state.selected_object_classes,
                 reuse_cached_persons=st.session_state.reuse_cached_persons,
                 reuse_cached_objects=st.session_state.reuse_cached_objects,

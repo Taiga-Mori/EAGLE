@@ -94,7 +94,7 @@ class ConfigManager:
         person_min_duration_ratio: float,
         object_smoothing_window: int,
         face_smoothing_window: int,
-        gaze_label_smoothing_sec: float,
+        gaze_point_smoothing_sec: float,
         gaze_half_precision: bool,
         render_video: bool,
         selected_object_classes: list[str] | None,
@@ -144,8 +144,8 @@ class ConfigManager:
             raise ValueError("object_smoothing_window must be at least 1")
         if face_smoothing_window < 1:
             raise ValueError("face_smoothing_window must be at least 1")
-        if gaze_label_smoothing_sec < 0:
-            raise ValueError("gaze_label_smoothing_sec must be non-negative")
+        if gaze_point_smoothing_sec < 0:
+            raise ValueError("gaze_point_smoothing_sec must be non-negative")
         normalized_selected_classes = self.normalize_selected_object_classes(selected_object_classes)
 
         return PipelineConfig(
@@ -183,7 +183,7 @@ class ConfigManager:
             person_min_duration_ratio=float(person_min_duration_ratio),
             object_smoothing_window=int(object_smoothing_window),
             face_smoothing_window=int(face_smoothing_window),
-            gaze_label_smoothing_sec=float(gaze_label_smoothing_sec),
+            gaze_point_smoothing_sec=float(gaze_point_smoothing_sec),
             gaze_half_precision=bool(gaze_half_precision),
             render_video=bool(render_video),
             selected_object_classes=normalized_selected_classes,

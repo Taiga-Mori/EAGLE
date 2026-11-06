@@ -185,8 +185,8 @@ Comportamiento del directorio de salida:
   - Ventana de suavizado para cajas de objetos seguidos.
 - `Face smoothing window`
   - Ventana de suavizado para cajas de rostro interpoladas.
-- `Gaze label smoothing (seconds, 0=disabled)`
-  - Solo para vídeos. El objetivo de mirada de cada fotograma en `annotation.csv` se sustituye por el objetivo más frecuente en una ventana centrada de esta duración (0,3 s por defecto), lo que elimina parpadeos breves. Los puntos de mirada y los mapas de calor no se suavizan.
+- `Gaze point smoothing (seconds, 0=disabled)`
+  - Solo para vídeos, 0,1 por defecto. Antes de decidir los objetivos de mirada, el punto de mirada de cada persona se suaviza en el tiempo con un filtro gaussiano centrado cuya desviación estándar es esta duración. Al ser centrado, elimina saltos breves sin retrasar los cambios de mirada. En nuestra evaluación elevó la κ de Cohen en unos 0,02 y redujo a la mitad los cambios de etiqueta, cerca de la frecuencia de la anotación humana; los filtros causales (suavizado exponencial, One Euro) y el suavizado de etiquetas no ayudaron. Los vídeos renderizados, `gaze.csv` y `annotation.csv` usan los puntos suavizados. Al cambiar este valor se reutilizan los mapas de calor en caché, sin volver a ejecutar el modelo de mirada.
 - `Person frame FPS`, `Object frame FPS`, `Face frame FPS`, `Gaze frame FPS`, `Head pose frame FPS`
   - Solo videos. Cada etapa se ejecuta con el target FPS seleccionado y escribe su propia salida intermedia. Todas las etapas usan 15 FPS por defecto (o el FPS del vídeo si es menor), lo que dio la misma concordancia que procesar todos los fotogramas en nuestra evaluación.
 
@@ -251,7 +251,7 @@ Las salidas actuales pueden incluir:
 - `.faces_meta.json`
   - Metadatos usados para validar la reutilización de face cache
 - `gaze.csv`
-  - Puntos de mirada, probabilidad in/out y campos de dirección fuera de pantalla (interpolados, sin suavizar)
+  - Puntos de mirada (interpolados y suavizados, ver `Gaze point smoothing`), probabilidad in/out y campos de dirección fuera de pantalla
 - `gaze_heatmaps.npz`
   - Mapas de calor de mirada de los fotogramas muestreados en caché (float16; los fotogramas intermedios se reinterpolan al reutilizar la caché)
 - `.gaze_meta.json`
