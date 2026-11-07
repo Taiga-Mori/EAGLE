@@ -6,6 +6,7 @@ huggingface_hub==1.33.0
 lap==0.5.12
 mediapipe==0.10.33
 numpy==2.2.6
+onnx==1.17.0; sys_platform == "darwin"
 onnxruntime==1.23.2; sys_platform == "darwin"
 onnxruntime-gpu==1.23.2; sys_platform != "darwin"
 opencv-python==4.13.0.92
