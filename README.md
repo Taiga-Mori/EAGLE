@@ -225,6 +225,23 @@ We compared configurations on 12 sessions of the [Chiba Three-party Conversation
 | GAZELLE | YOLO pose | 15 | off | 0.380 | 0.511 | 8.3 |
 | GAZELLE-DINOv3 | YOLO pose | 15 | off | 0.364 | 0.498 | 7.7 |
 
+All gaze models and frame rates with SCRFD (the default face detector), without gaze point smoothing; times include person tracking:
+
+| Gaze model | FPS | Cohen's κ | Macro-F1 | Time (min) |
+|---|---|---|---|---|
+| GAZELLE | 1 | 0.360 | 0.503 | 5.3 |
+| GAZELLE | 10 | 0.381 | 0.517 | 8.1 |
+| GAZELLE | 15 | 0.381 | 0.517 | 9.3 |
+| GAZELLE | 29.97 | 0.381 | 0.517 | 13.4 |
+| GAZELLE-DINOv3 | 1 | 0.348 | 0.491 | 5.2 |
+| GAZELLE-DINOv3 | 10 | 0.368 | 0.504 | 7.6 |
+| GAZELLE-DINOv3 | 15 | 0.368 | 0.504 | 8.5 |
+| GAZELLE-DINOv3 | 29.97 | 0.368 | 0.503 | 12.0 |
+| PaGE | 1 | 0.453 | 0.582 | 5.4 |
+| PaGE | 10 | **0.499** | **0.613** | 9.1 |
+| PaGE | 15 | **0.499** | **0.613** | 10.8 |
+| PaGE | 29.97 | 0.498 | 0.612 | 16.3 |
+
 - The gaze model matters most: PaGE beats GAZELLE and GAZELLE-DINOv3 by 0.12-0.14 κ in all 12 sessions.
 - Head boxes from pose keypoints (`yolo-pose`) work as well as detected faces (all four within 0.011 κ) and need no extra model. Face detectors only add time; RetinaFace and MediaPipe are the slowest.
 - 10 FPS gives the same agreement as 15 FPS and as every frame, and is about 15% faster; 1 FPS keeps about 90% of it.

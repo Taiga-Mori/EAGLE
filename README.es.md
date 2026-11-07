@@ -223,6 +223,23 @@ Comparamos configuraciones en 12 sesiones del [Chiba Three-party Conversation Co
 | GAZELLE | YOLO pose | 15 | no | 0.380 | 0.511 | 8.3 |
 | GAZELLE-DINOv3 | YOLO pose | 15 | no | 0.364 | 0.498 | 7.7 |
 
+Todos los modelos de mirada y frecuencias con SCRFD (el detector de rostros por defecto), sin suavizado del punto de mirada; los tiempos incluyen el seguimiento de personas:
+
+| Modelo de mirada | FPS | κ de Cohen | F1 macro | Tiempo (min) |
+|---|---|---|---|---|
+| GAZELLE | 1 | 0.360 | 0.503 | 5.3 |
+| GAZELLE | 10 | 0.381 | 0.517 | 8.1 |
+| GAZELLE | 15 | 0.381 | 0.517 | 9.3 |
+| GAZELLE | 29.97 | 0.381 | 0.517 | 13.4 |
+| GAZELLE-DINOv3 | 1 | 0.348 | 0.491 | 5.2 |
+| GAZELLE-DINOv3 | 10 | 0.368 | 0.504 | 7.6 |
+| GAZELLE-DINOv3 | 15 | 0.368 | 0.504 | 8.5 |
+| GAZELLE-DINOv3 | 29.97 | 0.368 | 0.503 | 12.0 |
+| PaGE | 1 | 0.453 | 0.582 | 5.4 |
+| PaGE | 10 | **0.499** | **0.613** | 9.1 |
+| PaGE | 15 | **0.499** | **0.613** | 10.8 |
+| PaGE | 29.97 | 0.498 | 0.612 | 16.3 |
+
 - El modelo de mirada es lo más importante: PaGE supera a GAZELLE y GAZELLE-DINOv3 en 0,12-0,14 de κ en las 12 sesiones.
 - Las cajas de cabeza derivadas de los puntos clave de pose (`yolo-pose`) funcionan tan bien como los rostros detectados (las cuatro opciones quedan a menos de 0,011 de κ) y no necesitan otro modelo. Los detectores de rostros solo añaden tiempo; RetinaFace y MediaPipe son los más lentos.
 - 10 FPS da la misma concordancia que 15 FPS y que procesar todos los fotogramas, y es un 15 % más rápido; 1 FPS conserva alrededor del 90 %.
