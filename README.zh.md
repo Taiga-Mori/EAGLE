@@ -92,6 +92,21 @@ python app.py
 venv/bin/streamlit run app.py
 ```
 
+### 在远程 GPU 服务器上使用
+应用在浏览器中运行，因此可以在 GPU 服务器上启动，并在自己的电脑上操作。在服务器上以只接受本机连接的方式启动：
+
+```bash
+venv/bin/streamlit run app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true
+```
+
+然后在自己的电脑上通过 SSH 转发端口，并打开 http://localhost:8501：
+
+```bash
+ssh -N -L 8501:localhost:8501 user@gpu-server
+```
+
+输入文件使用服务器上的路径（直接输入或用文件浏览器选择），输出也写在服务器上。应用本身没有登录功能，请使用 SSH 隧道，而不要把端口开放到网络上。
+
 ## 首次运行和模型下载
 首次使用时，EAGLE 可能会下载并缓存：
 

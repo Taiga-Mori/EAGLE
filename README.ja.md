@@ -92,6 +92,21 @@ Streamlit を直接起動することもできます。
 venv/bin/streamlit run app.py
 ```
 
+### リモートの GPU サーバーで使う
+アプリはブラウザで動くので、GPU サーバー上で起動して手元のパソコンから操作できます。サーバーでは、ローカルからの接続だけを受け付けるように起動します。
+
+```bash
+venv/bin/streamlit run app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true
+```
+
+手元のパソコンで SSH のポート転送を張り、http://localhost:8501 を開きます。
+
+```bash
+ssh -N -L 8501:localhost:8501 user@gpu-server
+```
+
+入力ファイルはサーバー上のパスで指定し（直接入力するかファイルブラウザで選択）、出力もサーバー上に書き出されます。アプリ自体にはログイン機能がないので、ポートをネットワークに公開せず SSH 転送で使ってください。
+
 ## 初回起動とモデルダウンロード
 初回利用時、EAGLE は必要に応じて次をダウンロードしてキャッシュします。
 

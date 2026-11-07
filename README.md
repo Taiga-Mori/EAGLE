@@ -93,6 +93,21 @@ You can also run Streamlit directly:
 venv/bin/streamlit run app.py
 ```
 
+### Using A Remote GPU Server
+The app runs in a web browser, so you can start it on a GPU server and use it from your own computer. On the server, start it so that it only listens locally:
+
+```bash
+venv/bin/streamlit run app.py --server.address 127.0.0.1 --server.port 8501 --server.headless true
+```
+
+Then, on your computer, forward the port over SSH and open http://localhost:8501:
+
+```bash
+ssh -N -L 8501:localhost:8501 user@gpu-server
+```
+
+Input files are paths on the server (type them or use the file browser), and outputs are written there too. The app has no login of its own, so use an SSH tunnel rather than opening the port to the network.
+
 ## First Run And Model Download
 On first use, EAGLE may download and cache:
 
